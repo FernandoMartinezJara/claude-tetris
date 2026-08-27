@@ -85,7 +85,10 @@ jobs:
             Nunca inventes una etiqueta que no aparezca en `gh label list`.
 
             === B) triage-report.md ===
-            En español, ~400 palabras como máximo, con EXACTAMENTE estas secciones y en este orden:
+            En español, ~400 palabras como máximo, en formato Markdown válido y bien
+            formado para que GitHub lo renderice correctamente (encabezados con `##`,
+            listas con `-`, tablas con separador `---`, rutas y símbolos de código entre
+            backticks), con EXACTAMENTE estas secciones y en este orden:
 
             ## Resumen
             Una o dos frases técnicas: qué falla o qué se pide.
