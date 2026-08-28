@@ -22,8 +22,8 @@ There is no build, lint, or test tooling in this repo.
 
 Everything lives in one file with module-level mutable state (`board`, `current`, `next`, `score`, `lines`, `level`, `paused`, `gameOver`, `dropInterval`, etc.) — no classes, no modules.
 
-- **Board model**: `ROWS × COLS` matrix; each cell is `0` (empty) or a piece color index `1–7`.
-- **Pieces**: `PIECES` array of square matrices (index 0 unused/null). Rotation (`rotateCW`) is transpose + row reversal, not stored per-piece rotation states.
+- **Board model**: `ROWS × COLS` matrix; each cell is `0` (empty) or a piece color index `1–8`.
+- **Pieces**: `PIECES` array of square matrices (index 0 unused/null). Rotation (`rotateCW`) is transpose + row reversal, not stored per-piece rotation states. Index 8 (`NUT`) is a 3×3 "tuerca" challenge piece — a ring with a non-colliding hole in the center (`[[8,8,8],[8,0,8],[8,8,8]]`); its hole is rendered as a real circle (`drawNutHole`, canvas `destination-out`) both mid-air and once locked (`isNutHole` detects a locked ring by checking all 8 neighbors of an empty cell).
 - **Collision** (`collide`): checks board bounds and overlap with locked cells.
 - **Wall kicks** (`tryRotate`): after rotating, tries offsets `[0, -1, 1, -2, 2]` until one doesn't collide.
 - **Game loop** (`loop`): driven by `requestAnimationFrame`, accumulates elapsed time in `dropAccum` and advances the piece one row once `dropInterval` is exceeded; otherwise calls `lockPiece()`.

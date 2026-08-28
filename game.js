@@ -13,6 +13,7 @@ const COLORS = [
   '#e57373', // Z - red
   '#7986cb', // J - indigo
   '#ffb74d', // L - orange
+  '#90a4ae', // N - tuerca (metal)
 ];
 
 const PIECES = [
@@ -24,7 +25,10 @@ const PIECES = [
   [[5,5,0],[0,5,5],[0,0,0]],                  // Z
   [[6,0,0],[6,6,6],[0,0,0]],                  // J
   [[0,0,7],[7,7,7],[0,0,0]],                  // L
+  [[8,8,8],[8,0,8],[8,8,8]],                  // N - tuerca (hueco central)
 ];
+
+const NUT = 8; // índice de la tuerca en PIECES/COLORS
 
 const LINE_SCORES = [0, 100, 300, 500, 800];
 
@@ -48,7 +52,7 @@ function createBoard() {
 }
 
 function randomPiece() {
-  const type = Math.floor(Math.random() * 7) + 1;
+  const type = Math.floor(Math.random() * (PIECES.length - 1)) + 1;
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
 }
@@ -170,6 +174,37 @@ function drawBlock(context, x, y, colorIndex, size, alpha) {
   context.globalAlpha = 1;
 }
 
+// Rellena la celda central de la tuerca con metal y le perfora un agujero circular.
+// destination-out borra hasta el fondo del canvas, así que el hueco muestra el fondo
+// del tablero definido en CSS y funciona igual en tema claro y oscuro.
+function drawNutHole(context, x, y, size) {
+  drawBlock(context, x, y, NUT, size);
+  context.save();
+  context.globalCompositeOperation = 'destination-out';
+  context.beginPath();
+  context.arc(x * size + size / 2, y * size + size / 2, size * 0.34, 0, Math.PI * 2);
+  context.fill();
+  context.restore();
+}
+
+// Una celda vacía del tablero es el hueco de una tuerca asentada si las 8 vecinas
+// (las que caen dentro del tablero) son todas tuerca. Si se rompe el anillo (p. ej.
+// se limpia su fila superior) deja de cumplirse y la celda vuelve a verse vacía normal.
+function isNutHole(r, c) {
+  if (board[r][c] !== 0) return false;
+  let hasNeighbor = false;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
+      if (board[nr][nc] !== NUT) return false;
+      hasNeighbor = true;
+    }
+  }
+  return hasNeighbor;
+}
+
 function drawGrid() {
   ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--grid-color').trim();
   ctx.lineWidth = 0.5;
@@ -193,8 +228,10 @@ function draw() {
 
   // board
   for (let r = 0; r < ROWS; r++)
-    for (let c = 0; c < COLS; c++)
-      drawBlock(ctx, c, r, board[r][c], BLOCK);
+    for (let c = 0; c < COLS; c++) {
+      if (isNutHole(r, c)) drawNutHole(ctx, c, r, BLOCK);
+      else drawBlock(ctx, c, r, board[r][c], BLOCK);
+    }
 
   if (current) {
     // ghost
@@ -208,6 +245,12 @@ function draw() {
     for (let r = 0; r < current.shape.length; r++)
       for (let c = 0; c < current.shape[r].length; c++)
         drawBlock(ctx, current.x + c, current.y + r, current.shape[r][c], BLOCK);
+
+    // hueco de la tuerca en caída (solo si no tapa un bloque ya asentado debajo)
+    if (current.type === NUT) {
+      const hr = current.y + 1, hc = current.x + 1;
+      if (hr >= 0 && hr < ROWS && board[hr][hc] === 0) drawNutHole(ctx, hc, hr, BLOCK);
+    }
   }
 }
 
@@ -220,6 +263,7 @@ function drawNext() {
   for (let r = 0; r < shape.length; r++)
     for (let c = 0; c < shape[r].length; c++)
       drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
+  if (next.type === NUT) drawNutHole(nextCtx, offX + 1, offY + 1, NB);
 }
 
 function endGame() {
