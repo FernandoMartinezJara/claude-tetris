@@ -22,6 +22,9 @@
   --restart-bg: #7aa2f7;
   --restart-color: #0f0f17;
   --restart-hover: #9bbdff;
+  --banner-bg: rgba(26, 26, 37, 0.92);
+  --banner-border: #3a3a5a;
+  --banner-text: #e0e0e0;
 }
 
 body.light {
@@ -42,6 +45,9 @@ body.light {
   --restart-bg: #3b5bdb;
   --restart-color: #ffffff;
   --restart-hover: #5c7ce0;
+  --banner-bg: rgba(255, 255, 255, 0.94);
+  --banner-border: #c7c7d6;
+  --banner-text: #1a1a25;
 }
 
 body {
@@ -116,7 +122,29 @@ body {
   transform: translateX(20px);
 }
 
+.icon-btn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--kbd-border);
+  border-radius: 50%;
+  background: var(--kbd-bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.icon-btn:hover {
+  background: var(--kbd-border);
+}
+
 .game-container {
+  position: relative;
   display: flex;
   gap: 20px;
   align-items: flex-start;
@@ -160,6 +188,17 @@ body {
   letter-spacing: 1px;
 }
 
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+.value.combo-active {
+  color: var(--overlay-title-color);
+  animation: pulse 0.3s ease-out;
+}
+
 #next-canvas {
   display: block;
   border: 1px solid var(--board-border);
@@ -191,6 +230,61 @@ kbd {
   font-size: 11px;
   font-family: inherit;
   color: var(--kbd-color);
+}
+
+@keyframes flash-perfect {
+  0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
+  30% { box-shadow: 0 0 40px 10px rgba(255, 215, 0, 0.7); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
+}
+
+.game-container.flash-perfect #board {
+  animation: flash-perfect 0.5s ease-out;
+}
+
+/* ---- Banner de power-up ---- */
+.power-banner {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  width: 300px; /* ancho del tablero: COLS * BLOCK */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--banner-bg);
+  border: 1px solid var(--banner-border);
+  border-radius: 6px;
+  color: var(--banner-text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+
+.power-banner.show {
+  opacity: 1;
+}
+
+.power-banner-icon {
+  font-size: 22px;
+}
+
+.power-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.power-banner-text strong {
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+.power-banner-text em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--control-color);
 }
 
 /* ---- Overlay ---- */

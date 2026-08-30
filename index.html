@@ -14,6 +14,7 @@
         <input type="checkbox" id="theme-switch" />
         <span class="slider"></span>
       </label>
+      <button id="sound-toggle" class="icon-btn" title="Silenciar/activar sonido">🔊</button>
     </div>
     <div class="game-container">
       <canvas id="board" width="300" height="600"></canvas>
@@ -31,10 +32,25 @@
           <span class="label">LEVEL</span>
           <span class="value" id="level">1</span>
         </div>
+        <div class="panel-section">
+          <span class="label">COMBO</span>
+          <span class="value" id="combo">—</span>
+        </div>
 
         <div class="panel-section">
           <span class="label">NEXT</span>
           <canvas id="next-canvas" width="120" height="120"></canvas>
+        </div>
+
+        <div class="panel-section controls">
+          <span class="label">POWER-UPS</span>
+          <ul>
+            <li>💣 bomba 3×3</li>
+            <li>⚡ fila + columna</li>
+            <li>🎨 comodines</li>
+            <li>🧲 compacta</li>
+            <li>❄️ congela 5s</li>
+          </ul>
         </div>
 
         <div class="panel-section controls">
@@ -48,6 +64,14 @@
           </ul>
         </div>
       </aside>
+
+      <div id="power-banner" class="power-banner">
+        <span id="power-banner-icon" class="power-banner-icon"></span>
+        <span class="power-banner-text">
+          <strong id="power-banner-name"></strong>
+          <em id="power-banner-desc"></em>
+        </span>
+      </div>
     </div>
 
     <div id="overlay" class="overlay hidden">
