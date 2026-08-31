@@ -20,82 +20,88 @@
       <canvas id="board" width="300" height="600"></canvas>
 
       <aside class="panel">
-        <div class="panel-section">
-          <span class="label">SCORE</span>
-          <span class="value" id="score">0</span>
-        </div>
-        <div class="panel-section">
-          <span class="label">LINES</span>
-          <span class="value" id="lines">0</span>
-        </div>
-        <div class="panel-section">
-          <span class="label">LEVEL</span>
-          <span class="value" id="level">1</span>
-        </div>
-        <div class="panel-section">
-          <span class="label">COMBO</span>
-          <span class="value" id="combo">—</span>
-        </div>
-        <div class="panel-section" id="energy-section">
-          <span class="label">ENERGÍA</span>
-          <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
-        </div>
-        <div class="panel-section hidden" id="objective-section">
-          <span class="label">OBJETIVO</span>
-          <span class="value" id="objective">0 / 0</span>
-        </div>
-        <div class="panel-section hidden" id="timer-section">
-          <span class="label">TIEMPO</span>
-          <span class="value" id="timer">0:00</span>
-        </div>
-
-        <div class="panel-section">
-          <span class="label">NEXT</span>
-          <canvas id="next-canvas" width="120" height="120"></canvas>
+        <div class="panel-column">
+          <div class="panel-section">
+            <span class="label">SCORE</span>
+            <span class="value" id="score">0</span>
+          </div>
+          <div class="panel-section">
+            <span class="label">LINES</span>
+            <span class="value" id="lines">0</span>
+          </div>
+          <div class="panel-section">
+            <span class="label">LEVEL</span>
+            <span class="value" id="level">1</span>
+          </div>
+          <div class="panel-section">
+            <span class="label">COMBO</span>
+            <span class="value" id="combo">—</span>
+          </div>
+          <div class="panel-section" id="energy-section">
+            <span class="label">ENERGÍA</span>
+            <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
+          </div>
+          <div class="panel-section hidden" id="objective-section">
+            <span class="label">OBJETIVO</span>
+            <span class="value" id="objective">0 / 0</span>
+          </div>
+          <div class="panel-section hidden" id="timer-section">
+            <span class="label">TIEMPO</span>
+            <span class="value" id="timer">0:00</span>
+          </div>
         </div>
 
-        <div class="panel-section hidden" id="hold-section">
-          <span class="label">RESERVA</span>
-          <canvas id="hold-canvas" width="120" height="120"></canvas>
+        <div class="panel-column">
+          <div class="panel-section">
+            <span class="label">NEXT</span>
+            <canvas id="next-canvas" width="120" height="120"></canvas>
+          </div>
+
+          <div class="panel-section" id="hold-section">
+            <span class="label">RESERVA</span>
+            <canvas id="hold-canvas" width="120" height="120"></canvas>
+          </div>
+
+          <div class="panel-section hidden" id="queue-section">
+            <span class="label">VIDENCIA</span>
+            <canvas id="queue-canvas" width="160" height="160"></canvas>
+          </div>
         </div>
 
-        <div class="panel-section hidden" id="queue-section">
-          <span class="label">VIDENCIA</span>
-          <canvas id="queue-canvas" width="100" height="400"></canvas>
-        </div>
+        <div class="panel-column">
+          <div class="panel-section controls">
+            <span class="label">POWER-UPS</span>
+            <ul>
+              <li>💣 bomba 3×3</li>
+              <li>⚡ fila + columna</li>
+              <li>🎨 comodines</li>
+              <li>🧲 compacta</li>
+              <li>❄️ congela 5s</li>
+            </ul>
+          </div>
 
-        <div class="panel-section controls">
-          <span class="label">POWER-UPS</span>
-          <ul>
-            <li>💣 bomba 3×3</li>
-            <li>⚡ fila + columna</li>
-            <li>🎨 comodines</li>
-            <li>🧲 compacta</li>
-            <li>❄️ congela 5s</li>
-          </ul>
-        </div>
+          <div class="panel-section controls">
+            <span class="label">HABILIDADES</span>
+            <ul>
+              <li>🔮 videncia ×5</li>
+              <li>🔄 intercambio</li>
+              <li>🐢 lentitud 10s</li>
+              <li>↩️ deshacer</li>
+            </ul>
+          </div>
 
-        <div class="panel-section controls">
-          <span class="label">HABILIDADES</span>
-          <ul>
-            <li>🔮 videncia ×5</li>
-            <li>🔄 intercambio</li>
-            <li>🐢 lentitud 10s</li>
-            <li>↩️ deshacer</li>
-            <li>📦 reserva</li>
-          </ul>
-        </div>
-
-        <div class="panel-section controls">
-          <span class="label">CONTROLS</span>
-          <ul>
-            <li><kbd>←</kbd><kbd>→</kbd> mover</li>
-            <li><kbd>↑</kbd> rotar</li>
-            <li><kbd>↓</kbd> bajar</li>
-            <li><kbd>Space</kbd> caída</li>
-            <li><kbd>P</kbd> pausa</li>
-            <li><kbd>E</kbd> habilidad</li>
-          </ul>
+          <div class="panel-section controls">
+            <span class="label">CONTROLS</span>
+            <ul>
+              <li><kbd>←</kbd><kbd>→</kbd> mover</li>
+              <li><kbd>↑</kbd> rotar</li>
+              <li><kbd>↓</kbd> bajar</li>
+              <li><kbd>Space</kbd> caída</li>
+              <li><kbd>P</kbd> pausa</li>
+              <li><kbd>E</kbd> habilidad</li>
+              <li><kbd>C</kbd>/<kbd>⇧</kbd> hold</li>
+            </ul>
+          </div>
         </div>
       </aside>
 

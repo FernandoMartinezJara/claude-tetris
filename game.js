@@ -98,7 +98,6 @@ const ABILITIES = [
   { id: 'cambiar',    icono: '🔄', nombre: 'INTERCAMBIO', desc: 'Cambia la pieza actual' },
   { id: 'ralentizar', icono: '🐢', nombre: 'LENTITUD',    desc: `Caída ${SLOW_FACTOR}× más lenta ${SLOW_MS / 1000}s` },
   { id: 'deshacer',   icono: '↩️', nombre: 'DESHACER',    desc: 'Revierte la última pieza' },
-  { id: 'hold',       icono: '📦', nombre: 'RESERVA',     desc: 'Guarda o recupera una pieza' },
 ];
 
 // Modo desafío: cada entrada es datos puros, no una rama de código. Un campo
@@ -185,6 +184,11 @@ let audioCtx, audioStarted, muted;
 // pausa. Una sola carga: se gasta entera y vuelve a 0, sin acumular.
 let energy, choosingAbility, heldPiece, undoSnapshot, garbageSinceLock;
 let preview5Remaining, slowRemaining;
+
+// Hold clásico (tecla C/Shift, siempre disponible, gratis): comparte
+// `heldPiece` con lo que antes era la habilidad RESERVA. `holdUsedThisPiece`
+// es el límite "una vez por pieza" — se libera en cada spawn().
+let holdUsedThisPiece;
 
 // Modo desafío. `activeChallenge` nunca es null (por defecto CHALLENGES[0],
 // clásico) para que updateHUD() —llamado en cada keydown— nunca tenga que
@@ -488,6 +492,7 @@ function spawn() {
   current = nextQueue.shift();
   refillQueue();
   if (preview5Remaining > 0) preview5Remaining--;
+  holdUsedThisPiece = false; // el hold se libera con cada pieza nueva
   lastActionWasRotate = false; // una pieza recién aparecida no ha rotado
   if (collide(current.shape, current.x, current.y)) {
     endGame();
@@ -618,7 +623,12 @@ function pushGarbageRow() {
 // habilidad no declarada) ni `espejoAvisado` (si no, ESPEJO se re-anunciaría
 // al recruzar el nivel 2). `linesSincePower` SÍ se guarda: sin él, deshacer y
 // volver a limpiar cruzaría el umbral de POWER_LINES dos veces — un power-up
-// gratis y repetible.
+// gratis y repetible. `heldPiece`/`holdUsedThisPiece` también se guardan: el
+// Hold clásico es gratis y no bloquea con energía, así que el jugador puede
+// holdear la pieza recién aparecida (mutando el bucket) y recién después
+// abrir el selector para deshacer el lock anterior a esa misma pieza — sin
+// esto, el bucket quedaría con una pieza "del futuro" que el deshacer no
+// debería conservar.
 function takeUndoSnapshot() {
   undoSnapshot = {
     board: board.map(row => [...row]),
@@ -627,6 +637,7 @@ function takeUndoSnapshot() {
     score, lines, level, dropInterval, linesSincePower,
     combo, btbTetris, preview5Remaining, lastActionWasRotate,
     freezeRemaining, slowRemaining,
+    heldPiece: heldPiece ? { ...heldPiece } : null, holdUsedThisPiece,
   };
   garbageSinceLock = 0;
 }
@@ -646,6 +657,8 @@ function abilityDeshacer() {
   combo = s.combo; btbTetris = s.btbTetris;
   preview5Remaining = s.preview5Remaining;
   lastActionWasRotate = s.lastActionWasRotate;
+  heldPiece = s.heldPiece ? { ...s.heldPiece } : null;
+  holdUsedThisPiece = s.holdUsedThisPiece;
   // Un temporizador solo puede ACORTARSE al deshacer, nunca alargarse: así
   // deshacer el lock de un Congelar/Ralentizar recién aplicado lo cancela,
   // pero deshacer otra cosa mientras uno ya corría no regala tiempo extra.
@@ -687,28 +700,32 @@ function abilityRalentizar() {
   return true;
 }
 
-// Guarda la pieza en caída y saca la siguiente de la cola, o la intercambia
-// con la ya guardada. Se guarda siempre en forma canónica (resetPiece: sin
-// rotar, posición de aparición) para que recuperarla no dependa de cómo
-// estuviera girada al guardarla. Guardar un power-up para más tarde es legal.
-function abilityHold() {
+// Hold clásico: guarda la pieza en caída y saca la siguiente de la cola, o la
+// intercambia con la ya guardada. Se guarda siempre en forma canónica
+// (resetPiece: sin rotar, posición de aparición) para que recuperarla no
+// dependa de cómo estuviera girada al guardarla. Guardar un power-up para más
+// tarde es legal. Una vez por pieza (holdUsedThisPiece, liberado en spawn())
+// evita reiniciar la caída a voluntad encadenando holds.
+function holdPiece() {
+  if (holdUsedThisPiece) return;
   const stored = { type: current.type, power: current.power };
   const incoming = heldPiece ? resetPiece(heldPiece) : nextQueue[0];
-  if (collide(incoming.shape, incoming.x, incoming.y)) return false; // no cabe: no cuesta carga
+  if (collide(incoming.shape, incoming.x, incoming.y)) return; // no cabe: no se gasta el uso
   if (heldPiece) {
     heldPiece = stored;
     current = incoming;
   } else {
     heldPiece = stored;
-    nextQueue.shift(); // primera reserva: cuesta la pieza que viene
+    nextQueue.shift(); // primer hold: cuesta la pieza que viene
     current = incoming;
     refillQueue();
   }
+  holdUsedThisPiece = true;
   lastActionWasRotate = false;
   dropAccum = 0;
   drawNext();
   drawHold();
-  return true;
+  updateHUD();
 }
 
 // Intervalo de caída efectivo. `dropInterval` sigue siendo el valor puro que
@@ -724,7 +741,6 @@ function runAbility(ability) {
     case 'cambiar':    return abilityCambiar();
     case 'ralentizar': return abilityRalentizar();
     case 'deshacer':   return abilityDeshacer();
-    case 'hold':       return abilityHold();
   }
   return false;
 }
@@ -801,7 +817,7 @@ function updateHUD() {
   if (energyFill.style.width !== pct) energyFill.style.width = pct;
   energySection.classList.toggle('full', energy >= ENERGY_MAX);
 
-  holdSection.classList.toggle('hidden', !heldPiece);
+  holdSection.classList.toggle('locked', holdUsedThisPiece);
   queueSection.classList.toggle('hidden', preview5Remaining <= 0);
 }
 
@@ -1011,14 +1027,15 @@ function drawNext() {
   drawQueue();
 }
 
-// VIDENCIA: mientras dure, apila las 4 piezas siguientes a la del preview
-// normal en franjas de 4 celdas dentro de un canvas más alto y angosto.
+// VIDENCIA: mientras dure, acomoda las 4 piezas siguientes a la del preview
+// normal en una grilla 2×2 (dos por fila) en vez de una columna de 4 — mismo
+// contenido, un canvas mucho más corto (160×160 en vez de 100×400).
 function drawQueue() {
   queueCtx.clearRect(0, 0, queueCanvas.width, queueCanvas.height);
   if (preview5Remaining <= 0) return;
   for (let i = 0; i < PREVIEW_MAX - 1; i++) {
     const piece = nextQueue[i + 1];
-    if (piece) drawPreview(queueCtx, piece, 25, 0, i * 4);
+    if (piece) drawPreview(queueCtx, piece, 20, (i % 2) * 4, Math.floor(i / 2) * 4);
   }
 }
 
@@ -1167,6 +1184,7 @@ function init() {
   energy = 0;
   choosingAbility = false;
   heldPiece = null;
+  holdUsedThisPiece = false;
   undoSnapshot = null;
   garbageSinceLock = 0;
   preview5Remaining = 0;
@@ -1229,6 +1247,11 @@ document.addEventListener('keydown', e => {
       break;
     case 'KeyE':
       openAbilityMenu();
+      break;
+    case 'KeyC':
+    case 'ShiftLeft':
+    case 'ShiftRight':
+      holdPiece();
       break;
   }
   updateHUD();

@@ -160,13 +160,22 @@ body {
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
 }
 
-/* ---- Panel lateral ---- */
+/* ---- Panel lateral ----
+   Tres columnas cortas en fila en vez de una sola columna larga: así la
+   altura total queda acotada por el tablero (600px) en vez de por la suma de
+   todas las secciones, que ya no entraba sin scroll vertical. */
 .panel {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  padding-top: 4px;
+}
+
+.panel-column {
   width: 160px;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  padding-top: 4px;
 }
 
 .panel-section {
@@ -215,6 +224,12 @@ body {
   border: 1px solid var(--board-border);
   background: var(--board-bg);
   border-radius: 4px;
+}
+
+/* ---- Hold clásico ---- */
+#hold-section.locked {
+  opacity: 0.4;
+  transition: opacity 0.15s;
 }
 
 /* ---- Barra de energía (habilidades cargables) ---- */

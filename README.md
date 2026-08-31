@@ -19,6 +19,7 @@ Implementación del clásico **Tetris** en JavaScript vanilla, usando HTML5 Canv
   - [Controles](#controles)
   - [Power-ups](#power-ups)
   - [Habilidades cargables](#habilidades-cargables)
+  - [Hold (reservar pieza)](#hold-reservar-pieza)
   - [Combo y bonus](#combo-y-bonus)
   - [Modo desafío](#modo-desafío)
   - [Cómo funciona](#cómo-funciona)
@@ -48,7 +49,8 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Power-ups aleatorios**: cada 5 líneas limpiadas, la siguiente pieza es un power-up 1×1 (ver [tabla abajo](#power-ups)).
-- **Habilidades cargables**: una barra de energía se llena al limpiar líneas; al completarse, el jugador elige (no recibe al azar) una de 5 habilidades tácticas (ver [tabla abajo](#habilidades-cargables)).
+- **Habilidades cargables**: una barra de energía se llena al limpiar líneas; al completarse, el jugador elige (no recibe al azar) una de 4 habilidades tácticas (ver [tabla abajo](#habilidades-cargables)).
+- **Hold**: guarda o intercambia la pieza actual con `C`/`Shift`, una vez por pieza (ver [detalle abajo](#hold-reservar-pieza)).
 - **Modo combo y multiplicadores**: rachas de líneas consecutivas multiplican el puntaje, con bonus por T-spin, Tetris consecutivos (B2B) y Perfect Clear, más feedback visual y sonoro (ver [detalle abajo](#combo-y-bonus)).
 - **Modo desafío**: un menú inicial ofrece Clásico y 5 retos con objetivo propio — Contrarreloj, Basura, Tablero sucio, Fantasma y Espejo (ver [tabla abajo](#modo-desafío)). Power-ups y combo siguen activos en todos.
 - **Pausa** y **Game Over** (o victoria/derrota de desafío) con opción de reintentar o volver al menú.
@@ -96,6 +98,7 @@ Después abre `http://localhost:8000` en el navegador.
 | `Espacio` | Hard drop (caída instantánea)     |
 | `P`       | Pausar / reanudar                 |
 | `E`       | Abrir el selector de habilidades (solo con la barra de energía llena) |
+| `C` / `Shift` | Hold: guardar/intercambiar la pieza actual (una vez por pieza) |
 
 También hay un botón de silencio (🔊/🔇) junto al selector de tema, para cortar los efectos sonoros del modo combo; su estado se recuerda entre sesiones.
 
@@ -119,17 +122,22 @@ Los comodines de **Tinte** son atravesables (las piezas caen a través de ellos)
 
 ## Habilidades cargables
 
-A diferencia de los power-ups (aleatorios, se reciben pasivamente), las habilidades son la contraparte **activa**: el jugador elige cuándo y cuál usar. Una barra de **ENERGÍA** en el panel lateral sube con cada línea limpiada; al llegar al 100% (con cualquier lock que despeje al menos una línea, tanto normal como de un power-up), pulsar `E` congela la partida y abre un selector con las 5 habilidades. Elegir una la ejecuta y vacía la barra por completo — no se acumulan cargas. `Esc` cancela el selector sin gastar nada; con el teclado, `1`–`5` eligen directamente cada opción.
+A diferencia de los power-ups (aleatorios, se reciben pasivamente), las habilidades son la contraparte **activa**: el jugador elige cuándo y cuál usar. Una barra de **ENERGÍA** en el panel lateral sube con cada línea limpiada; al llegar al 100% (con cualquier lock que despeje al menos una línea, tanto normal como de un power-up), pulsar `E` congela la partida y abre un selector con las 4 habilidades. Elegir una la ejecuta y vacía la barra por completo — no se acumulan cargas. `Esc` cancela el selector sin gastar nada; con el teclado, `1`–`4` eligen directamente cada opción.
 
 | Icono | Nombre | Efecto |
 | ----- | ------ | ------ |
 | 🔮 | **Videncia** | Muestra las próximas 5 piezas durante 10 colocaciones |
 | 🔄 | **Intercambio** | Cambia la pieza en caída por otra pieza estándar distinta |
 | 🐢 | **Lentitud** | La caída automática se ralentiza 2.5× durante 10 segundos |
-| ↩️ | **Deshacer** | Revierte tablero, puntaje, líneas, nivel y combo al estado justo antes de la última pieza bloqueada (deshabilitada si aún no se ha colocado ninguna) |
-| 📦 | **Reserva** | Guarda la pieza actual y saca la siguiente de la cola; usarla de nuevo intercambia con la guardada |
+| ↩️ | **Deshacer** | Revierte tablero, puntaje, líneas, nivel, combo y la reserva de Hold al estado justo antes de la última pieza bloqueada (deshabilitada si aún no se ha colocado ninguna) |
 
-Una habilidad que no puede aplicarse en ese instante (Intercambio o Reserva sin espacio para aparecer) se rechaza sin cobrar la carga. Deshacer no puede revertir la jugada que terminó la partida o ganó un desafío, y no regala tiempo de reloj: los relojes de desafío y de Congelar/Lentitud solo pueden acortarse al deshacer, nunca alargarse.
+Una habilidad que no puede aplicarse en ese instante (Intercambio sin espacio para aparecer) se rechaza sin cobrar la carga. Deshacer no puede revertir la jugada que terminó la partida o ganó un desafío, y no regala tiempo de reloj: los relojes de desafío y de Congelar/Lentitud solo pueden acortarse al deshacer, nunca alargarse.
+
+---
+
+## Hold (reservar pieza)
+
+El mecanismo clásico de Tetris moderno: `C` o `Shift` guardan la pieza en caída en un slot **RESERVA** del panel lateral (visible desde la primera pieza, igual que `NEXT`) y sacan la siguiente de la cola. Si ya había una pieza guardada, se intercambian. Solo se puede usar **una vez por pieza** — el slot se atenúa mientras el uso está bloqueado, y se libera en cuanto la pieza actual se asienta y aparece una nueva. Útil para guardar una pieza I esperando un Tetris, o para salvarse de un mal spawn.
 
 ---
 
@@ -195,10 +203,11 @@ Contiene toda la lógica del juego. A grandes rasgos:
 - **Puntuación**: usa la tabla clásica `[0, 100, 300, 500, 800]` multiplicada por el nivel actual; el hard drop suma 2 puntos por celda recorrida y el soft drop 1 punto por fila.
 - **Nivel y velocidad**: el nivel sube cada 10 líneas; la velocidad de caída se calcula como `max(100, 1000 − (level − 1) × 90)` milisegundos.
 - **Ghost piece** (`ghostY`): proyecta la posición final de la pieza actual hacia abajo y la dibuja con `globalAlpha = 0.2`.
-- **Power-ups**: el `'power'` encolado por `clearLines` (ver *Recompensas* arriba) se convierte en un power-up 1×1 al consumirse en `nextPiece`. Al bloquearse (`lockPiece`), no se fusiona en el tablero: dispara su efecto (`applyPower`) y luego corre `clearLines` igual que siempre, así que un efecto que complete una fila puntúa — pero sin pasar por el combo (ver siguiente punto).
+- **Power-ups**: `queueRewards()` (ver *Cola de piezas y recompensas* arriba) inserta un power-up 1×1 ya armado (`powerPiece()`) directo en `nextQueue`. Al bloquearse (`lockPiece`), no se fusiona en el tablero: dispara su efecto (`applyPower`) y luego corre `clearLines` igual que siempre, así que un efecto que complete una fila puntúa — pero sin pasar por el combo (ver siguiente punto).
 - **Combo/T-spin/B2B/Perfect Clear** (`resolveClear`): `clearLines` ya no puntúa, solo devuelve cuántas líneas limpió; `lockPiece` usa ese número para decidir el puntaje final. El combo sube con cada bloqueo consecutivo que limpia líneas (tope ×5) y se reinicia si uno falla; un T-spin (rotar la T como último movimiento y encajarla con al menos 3 de sus 4 esquinas bloqueadas) reemplaza el puntaje normal por una tabla propia; dos Tetris seguidos suman un bonus B2B; y vaciar el tablero por completo suma un bonus fijo aparte. Solo un power-up nunca pasa por aquí — así nunca compite por el mismo banner que un evento de combo.
 - **Modo desafío** (`CHALLENGES`, `activeChallenge`): cada desafío es una entrada de datos, no una rama de código — un campo ausente simplemente no activa esa mecánica, y **Clásico es la entrada sin ningún campo especial**. `checkObjective()` (en `lockPiece`, antes de `spawn()`) gana el desafío al alcanzar `metaLineas`; el reloj de `limiteMs` se descuenta en `loop()` con el mismo `dt` (con un tope `DT_CAP` para que una pestaña en segundo plano no lo vacíe de golpe) y termina en victoria o derrota según `alAgotarse`. `basuraMs` sube una fila de basura (`GARBAGE`, índice 15, solo vive en `board`) cada cierto tiempo, reutilizando la misma columna de hueco 2-3 filas para que sea limpiable; `prefill` hace lo mismo de una vez al iniciar. `invisible` oculta lo asentado en `draw()` salvo un destello de `REVEAL_MS` tras cada bloqueo (la pieza fantasma se mantiene visible a propósito). `espejoDesdeNivel` cambia `tryRotate()` a rotación antihoraria (`rotateCCW`, tres `rotateCW` seguidos) desde ese nivel. `endRun()` centraliza el fin de partida (ganada o perdida) y es idempotente, porque una victoria y un topout pueden intentar resolverse en el mismo bloqueo.
-- **Habilidades cargables** (`ABILITIES`, `energy`): `queueRewards()` suma energía con cada línea limpiada (tope `ENERGY_MAX`); llena, `E` (`openAbilityMenu`) congela el juego igual que la pausa (cancela el `requestAnimationFrame` y lo retoma con `lastTime` reseteado al cerrar) y abre un selector propio, independiente del overlay de pausa/fin de partida. `takeUndoSnapshot()` guarda, al inicio de cada `lockPiece()`, una copia del tablero/pieza/cola/puntaje — **sin** la energía (se pondría a 0 igual al cobrar la carga) ni el reloj del desafío (es tiempo real, no rebobinable) — para que **Deshacer** pueda restaurar exactamente ese instante; los temporizadores de Congelar/Lentitud solo se acortan al restaurarse, nunca se alargan, y la basura empujada después del bloqueo (`garbageSinceLock`) se vuelve a empujar tras el tablero restaurado. Las demás habilidades mutan `current`/`nextQueue`/`heldPiece` directamente y devuelven `false` sin cobrar la carga cuando no pueden aplicarse (p. ej. no cabe la pieza entrante).
+- **Habilidades cargables** (`ABILITIES`, `energy`): `queueRewards()` suma energía con cada línea limpiada (tope `ENERGY_MAX`); llena, `E` (`openAbilityMenu`) congela el juego igual que la pausa (cancela el `requestAnimationFrame` y lo retoma con `lastTime` reseteado al cerrar) y abre un selector propio, independiente del overlay de pausa/fin de partida. `takeUndoSnapshot()` guarda, al inicio de cada `lockPiece()`, una copia del tablero/pieza/cola/puntaje/reserva de hold — **sin** la energía (se pondría a 0 igual al cobrar la carga) ni el reloj del desafío (es tiempo real, no rebobinable) — para que **Deshacer** pueda restaurar exactamente ese instante; los temporizadores de Congelar/Lentitud solo se acortan al restaurarse, nunca se alargan, y la basura empujada después del bloqueo (`garbageSinceLock`) se vuelve a empujar tras el tablero restaurado. Las demás habilidades mutan `current`/`nextQueue` directamente y devuelven `false` sin cobrar la carga cuando no pueden aplicarse (p. ej. no cabe la pieza entrante).
+- **Hold** (`heldPiece`, `holdUsedThisPiece`): mecanismo clásico, gratuito y siempre disponible — `holdPiece()` (disparado por `KeyC`/`ShiftLeft`/`ShiftRight`) guarda `current` en forma canónica (`resetPiece()`, sin rotar, posición de aparición) e intercambia con `nextQueue[0]` o con la pieza ya guardada. `holdUsedThisPiece` impone el límite de una vez por pieza (se libera en cada `spawn()`); el panel `RESERVA` se atenúa (`.locked`) mientras está bloqueado. Reutiliza `resetPiece()`/`drawHold()`, que ya existían como parte de la habilidad RESERVA original — retirada del catálogo de habilidades al volverse Hold un mecanismo gratuito, para no mantener dos formas de "guardar pieza" superpuestas. `takeUndoSnapshot()`/`abilityDeshacer()` incluyen `heldPiece`/`holdUsedThisPiece` a propósito: como el hold es gratis, el jugador puede guardar la pieza recién aparecida y recién después deshacer el bloqueo anterior a esa pieza — sin restaurar también la reserva, el bucket quedaría con una pieza "del futuro" respecto al estado rebobinado.
 
 ### Flujo del juego
 
