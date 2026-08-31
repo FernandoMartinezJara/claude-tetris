@@ -19,6 +19,7 @@ Implementación del clásico **Tetris** en JavaScript vanilla, usando HTML5 Canv
   - [Controles](#controles)
   - [Power-ups](#power-ups)
   - [Combo y bonus](#combo-y-bonus)
+  - [Modo desafío](#modo-desafío)
   - [Cómo funciona](#cómo-funciona)
     - [1. `index.html`](#1-indexhtml)
     - [2. `style.css`](#2-stylecss)
@@ -47,7 +48,8 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Power-ups aleatorios**: cada 5 líneas limpiadas, la siguiente pieza es un power-up 1×1 (ver [tabla abajo](#power-ups)).
 - **Modo combo y multiplicadores**: rachas de líneas consecutivas multiplican el puntaje, con bonus por T-spin, Tetris consecutivos (B2B) y Perfect Clear, más feedback visual y sonoro (ver [detalle abajo](#combo-y-bonus)).
-- **Pausa** y **Game Over** con opción de reinicio.
+- **Modo desafío**: un menú inicial ofrece Clásico y 5 retos con objetivo propio — Contrarreloj, Basura, Tablero sucio, Fantasma y Espejo (ver [tabla abajo](#modo-desafío)). Power-ups y combo siguen activos en todos.
+- **Pausa** y **Game Over** (o victoria/derrota de desafío) con opción de reintentar o volver al menú.
 
 ---
 
@@ -127,6 +129,22 @@ Un bloqueo notable (T-spin, Tetris, combo activo o Perfect Clear) muestra un ban
 
 ---
 
+## Modo desafío
+
+Al cargar la página aparece un menú con **Clásico** (el modo libre de siempre, sin objetivos) y 5 desafíos con meta propia. Power-ups, piezas raras y el sistema de combo siguen activos en todos ellos — cada desafío solo añade reglas encima del juego normal, no le quita nada.
+
+| Icono | Desafío | Objetivo | Regla especial |
+| ----- | ------- | -------- | --------------- |
+| ⏱️ | **Contrarreloj** | 40 líneas en 2:00 | — |
+| 🗑️ | **Basura** | Sobrevivir 2:00 | Cada 10s sube una fila de basura desde abajo, con un hueco que se mantiene alineado 2-3 filas seguidas |
+| 🧱 | **Tablero sucio** | 20 líneas | Empieza con 6 filas de escombros ya puestas |
+| 👻 | **Fantasma** | 20 líneas | Lo asentado se vuelve invisible; cada pieza que bloqueas revela el tablero ~0,6s. La pieza fantasma se mantiene visible |
+| 🪞 | **Espejo** | 20 líneas | Desde el nivel 2, la rotación se invierte (antihoraria) |
+
+Al terminar (por victoria o derrota) aparece un overlay con la opción de **Reintentar** el mismo desafío o volver al **Menú**.
+
+---
+
 ## Cómo funciona
 
 El juego se compone de tres archivos que cooperan:
@@ -136,8 +154,8 @@ El juego se compone de tres archivos que cooperan:
 Define la estructura visual:
 
 - Un `<canvas id="board">` de **300 × 600** píxeles donde se renderiza el tablero.
-- Un panel lateral con `SCORE`, `LINES`, `LEVEL`, vista de la siguiente pieza y la lista de controles.
-- Un overlay para los estados **PAUSA** y **GAME OVER**.
+- Un panel lateral con `SCORE`, `LINES`, `LEVEL`, `COMBO`, `OBJETIVO`/`TIEMPO` (solo visibles en modo desafío), vista de la siguiente pieza y la lista de controles.
+- Un overlay para los estados **PAUSA**, **GAME OVER** y victoria/derrota de desafío, y otro para el **menú** de selección de modo.
 
 ### 2. `style.css`
 
@@ -160,6 +178,7 @@ Contiene toda la lógica del juego. A grandes rasgos:
 - **Ghost piece** (`ghostY`): proyecta la posición final de la pieza actual hacia abajo y la dibuja con `globalAlpha = 0.2`.
 - **Power-ups**: el `'power'` encolado por `clearLines` (ver *Recompensas* arriba) se convierte en un power-up 1×1 al consumirse en `nextPiece`. Al bloquearse (`lockPiece`), no se fusiona en el tablero: dispara su efecto (`applyPower`) y luego corre `clearLines` igual que siempre, así que un efecto que complete una fila puntúa — pero sin pasar por el combo (ver siguiente punto).
 - **Combo/T-spin/B2B/Perfect Clear** (`resolveClear`): `clearLines` ya no puntúa, solo devuelve cuántas líneas limpió; `lockPiece` usa ese número para decidir el puntaje final. El combo sube con cada bloqueo consecutivo que limpia líneas (tope ×5) y se reinicia si uno falla; un T-spin (rotar la T como último movimiento y encajarla con al menos 3 de sus 4 esquinas bloqueadas) reemplaza el puntaje normal por una tabla propia; dos Tetris seguidos suman un bonus B2B; y vaciar el tablero por completo suma un bonus fijo aparte. Solo un power-up nunca pasa por aquí — así nunca compite por el mismo banner que un evento de combo.
+- **Modo desafío** (`CHALLENGES`, `activeChallenge`): cada desafío es una entrada de datos, no una rama de código — un campo ausente simplemente no activa esa mecánica, y **Clásico es la entrada sin ningún campo especial**. `checkObjective()` (en `lockPiece`, antes de `spawn()`) gana el desafío al alcanzar `metaLineas`; el reloj de `limiteMs` se descuenta en `loop()` con el mismo `dt` (con un tope `DT_CAP` para que una pestaña en segundo plano no lo vacíe de golpe) y termina en victoria o derrota según `alAgotarse`. `basuraMs` sube una fila de basura (`GARBAGE`, índice 15, solo vive en `board`) cada cierto tiempo, reutilizando la misma columna de hueco 2-3 filas para que sea limpiable; `prefill` hace lo mismo de una vez al iniciar. `invisible` oculta lo asentado en `draw()` salvo un destello de `REVEAL_MS` tras cada bloqueo (la pieza fantasma se mantiene visible a propósito). `espejoDesdeNivel` cambia `tryRotate()` a rotación antihoraria (`rotateCCW`, tres `rotateCW` seguidos) desde ese nivel. `endRun()` centraliza el fin de partida (ganada o perdida) y es idempotente, porque una victoria y un topout pueden intentar resolverse en el mismo bloqueo.
 
 ### Flujo del juego
 
@@ -179,7 +198,7 @@ init()
    keydown → mover / rotar / soft-drop / hard-drop / pausa
 ```
 
-Cuando una pieza recién generada ya colisiona al aparecer (`spawn`), se dispara `endGame()` y se muestra el overlay de **Game Over**.
+Cuando una pieza recién generada ya colisiona al aparecer (`spawn`), se dispara `endGame()` y se muestra el overlay de **Game Over**. Antes de arrancar cualquier partida, `showMenu()` muestra el listado de modos; elegir uno llama a `startChallenge(id)`, que fija `activeChallenge` y recién ahí llama a `init()`.
 
 ---
 
@@ -216,7 +235,7 @@ Algunos parámetros fáciles de tunear en `game.js`:
 | `COLS`         | Columnas del tablero                     | `10`                  |
 | `ROWS`         | Filas del tablero                        | `20`                  |
 | `BLOCK`        | Tamaño en píxeles de cada celda          | `30`                  |
-| `COLORS`       | Paleta de colores por tipo de pieza      | 14 colores            |
+| `COLORS`       | Paleta de colores por tipo de pieza      | 15 colores            |
 | `LINE_SCORES`  | Puntos por 1, 2, 3 o 4 líneas eliminadas | `[0,100,300,500,800]` |
 | `dropInterval` | Velocidad inicial de caída en ms         | `1000`                |
 | `RARE_CHANCE`  | Probabilidad de pieza rara (tuerca/pentominós) | `0.12`           |
@@ -226,6 +245,9 @@ Algunos parámetros fáciles de tunear en `game.js`:
 | `TSPIN_SCORES` | Puntaje de T-spin según líneas limpiadas | `[400,800,1200,1600]`  |
 | `BTB_BONUS_RATIO` | % extra por Tetris consecutivos (B2B) | `0.5`                  |
 | `PERFECT_CLEAR_BONUS` | Bonus fijo (× nivel) por Perfect Clear | `2000`            |
+| `CHALLENGES`   | Catálogo de desafíos (objetivo, reloj, basura, etc.) | 6 entradas  |
+| `REVEAL_MS`    | Duración del destello de FANTASMA al bloquear | `600`             |
+| `DT_CAP`       | Tope de dt por frame (evita saltos de reloj) | `100`              |
 
 > Si cambias `COLS`, `ROWS` o `BLOCK`, recuerda ajustar también `width` y `height` del `<canvas id="board">` en `index.html` para que coincida (`COLS × BLOCK` × `ROWS × BLOCK`).
 

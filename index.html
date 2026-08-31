@@ -36,6 +36,14 @@
           <span class="label">COMBO</span>
           <span class="value" id="combo">—</span>
         </div>
+        <div class="panel-section hidden" id="objective-section">
+          <span class="label">OBJETIVO</span>
+          <span class="value" id="objective">0 / 0</span>
+        </div>
+        <div class="panel-section hidden" id="timer-section">
+          <span class="label">TIEMPO</span>
+          <span class="value" id="timer">0:00</span>
+        </div>
 
         <div class="panel-section">
           <span class="label">NEXT</span>
@@ -78,7 +86,17 @@
       <div class="overlay-box">
         <p id="overlay-title">GAME OVER</p>
         <p id="overlay-score"></p>
-        <button id="restart-btn">Reiniciar</button>
+        <div class="overlay-actions">
+          <button id="restart-btn">Reintentar</button>
+          <button id="menu-btn" class="secondary">Menú</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="menu" class="overlay hidden">
+      <div class="overlay-box">
+        <p class="menu-title">TETRIS</p>
+        <div id="menu-list" class="menu-list"></div>
       </div>
     </div>
   </div>

@@ -19,6 +19,7 @@
   --kbd-color: #aaa;
   --overlay-bg: rgba(10, 10, 20, 0.75);
   --overlay-title-color: #e57373;
+  --win-color: #81c784;
   --restart-bg: #7aa2f7;
   --restart-color: #0f0f17;
   --restart-hover: #9bbdff;
@@ -42,6 +43,7 @@ body.light {
   --kbd-color: #444455;
   --overlay-bg: rgba(240, 240, 245, 0.85);
   --overlay-title-color: #c0392b;
+  --win-color: #2e7d32;
   --restart-bg: #3b5bdb;
   --restart-color: #ffffff;
   --restart-hover: #5c7ce0;
@@ -173,6 +175,10 @@ body {
   gap: 6px;
 }
 
+.panel-section.hidden {
+  display: none;
+}
+
 .label {
   font-size: 10px;
   letter-spacing: 2px;
@@ -195,6 +201,11 @@ body {
 }
 
 .value.combo-active {
+  color: var(--overlay-title-color);
+  animation: pulse 0.3s ease-out;
+}
+
+.value.timer-urgente {
   color: var(--overlay-title-color);
   animation: pulse 0.3s ease-out;
 }
@@ -325,7 +336,6 @@ kbd {
 }
 
 #restart-btn {
-  margin-top: 8px;
   background: var(--restart-bg);
   color: var(--restart-color);
   border: none;
@@ -340,4 +350,88 @@ kbd {
 
 #restart-btn:hover {
   background: var(--restart-hover);
+}
+
+#overlay-title.win {
+  color: var(--win-color);
+}
+
+.overlay-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+#menu-btn.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--kbd-border);
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: background 0.15s;
+}
+
+#menu-btn.secondary:hover {
+  background: var(--kbd-bg);
+}
+
+/* ---- Menú de desafíos ---- */
+.menu-title {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  color: var(--title-color);
+}
+
+.menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 260px;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: var(--kbd-bg);
+  border: 1px solid var(--kbd-border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.menu-item:hover {
+  background: var(--board-border);
+  border-color: var(--value-color);
+}
+
+.menu-item-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.menu-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menu-item-text strong {
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--value-color);
+}
+
+.menu-item-text em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--control-color);
 }

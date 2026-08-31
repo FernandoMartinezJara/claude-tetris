@@ -20,6 +20,7 @@ const COLORS = [
   '#eceff1', // 12 single - plata (recompensa)
   '#f06292', // 13 comodín (WILD)
   '#26c6da', // 14 power-up (POWER)
+  '#616161', // 15 basura (GARBAGE), solo en modo desafío
 ];
 
 const PIECES = [
@@ -45,6 +46,8 @@ const YPENT = 11;
 const SINGLE = 12; // recompensa tras un Tetris (nunca sale por azar)
 const WILD = 13;   // comodín: atravesable, pero cuenta como celda llena al limpiar líneas
 const POWER = 14;  // color del bloque power-up (nunca se asienta en el tablero)
+const GARBAGE = 15; // basura del modo desafío: solo vive en `board`, nunca en PIECES
+                     // (randomPiece()/makePiece() no pueden sacarla por azar)
 
 const T_PIECE = 3; // índice de la T en PIECES, usado para detectar T-spins
 
@@ -77,6 +80,43 @@ const POWERS = [
   { id: 'congelar', nombre: 'CONGELAR', icono: '❄️', desc: 'Congela la caída 5s' },
 ];
 
+// Modo desafío: cada entrada es datos puros, no una rama de código. Un campo
+// ausente simplemente no activa esa mecánica; CLÁSICO es la entrada sin ningún
+// campo especial, así que el modo libre de siempre es un desafío más, no un
+// camino aparte. Power-ups y combo siguen activos en todos — solo se añaden
+// reglas encima del juego normal. {icono, nombre, desc} calzan con showBanner().
+const CHALLENGES = [
+  { id: 'clasico', icono: '🎮', nombre: 'CLÁSICO',
+    desc: 'Sin objetivos: juega hasta perder' },
+
+  { id: 'contrarreloj', icono: '⏱️', nombre: 'CONTRARRELOJ',
+    desc: '40 líneas en 2:00',
+    metaLineas: 40, limiteMs: 120000 },
+
+  { id: 'basura', icono: '🗑️', nombre: 'BASURA',
+    desc: 'Sobrevive 2:00 con basura subiendo cada 10s',
+    limiteMs: 120000, alAgotarse: 'ganar', basuraMs: 10000 },
+
+  { id: 'sucio', icono: '🧱', nombre: 'TABLERO SUCIO',
+    desc: '20 líneas partiendo con 6 filas de escombros',
+    metaLineas: 20, prefill: 6 },
+
+  { id: 'fantasma', icono: '👻', nombre: 'FANTASMA',
+    desc: '20 líneas; lo asentado se vuelve invisible',
+    metaLineas: 20, invisible: true },
+
+  // Nivel 2 (10 líneas), no 3: el nivel 3 son exactamente las 20 líneas que
+  // ganan el desafío (level = floor(lines/10)+1), así que disparar en nivel 3
+  // dejaría el espejo sin jugarse nunca.
+  { id: 'espejo', icono: '🪞', nombre: 'ESPEJO',
+    desc: '20 líneas; rotación invertida desde el nivel 2',
+    metaLineas: 20, espejoDesdeNivel: 2 },
+];
+
+const REVEAL_MS = 600; // duración del destello de Fantasma al bloquear una pieza
+const DT_CAP = 100;    // tope de dt por frame: evita que una pestaña en segundo
+                        // plano vacíe de golpe los relojes del modo desafío
+
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next-canvas');
@@ -85,10 +125,17 @@ const scoreEl = document.getElementById('score');
 const linesEl = document.getElementById('lines');
 const levelEl = document.getElementById('level');
 const comboEl = document.getElementById('combo');
+const objectiveSection = document.getElementById('objective-section');
+const objectiveEl = document.getElementById('objective');
+const timerSection = document.getElementById('timer-section');
+const timerEl = document.getElementById('timer');
 const overlay = document.getElementById('overlay');
 const overlayTitle = document.getElementById('overlay-title');
 const overlayScore = document.getElementById('overlay-score');
 const restartBtn = document.getElementById('restart-btn');
+const menuBtn = document.getElementById('menu-btn');
+const menu = document.getElementById('menu');
+const menuList = document.getElementById('menu-list');
 const themeSwitch = document.getElementById('theme-switch');
 const soundToggle = document.getElementById('sound-toggle');
 const bannerEl = document.getElementById('power-banner');
@@ -101,6 +148,11 @@ let board, current, next, score, lines, level, paused, gameOver, lastTime, dropA
 let linesSincePower, pieceQueue, freezeRemaining, bannerTimer;
 let combo, btbTetris, lastActionWasRotate;
 let audioCtx, audioStarted, muted;
+
+// Modo desafío. `activeChallenge` nunca es null (por defecto CHALLENGES[0],
+// clásico) para que updateHUD() —llamado en cada keydown— nunca tenga que
+// comprobar null. `inMenu` bloquea input/pausa mientras se elige un modo.
+let activeChallenge, challengeRemaining, garbageAccum, garbageHoleCol, revealRemaining, espejoAvisado, inMenu;
 
 function createBoard() {
   return Array.from({ length: ROWS }, () => new Array(COLS).fill(0));
@@ -156,8 +208,18 @@ function rotateCW(shape) {
   return result;
 }
 
+// El giro antihorario del desafío ESPEJO son tres giros horarios: reutiliza
+// rotateCW sin duplicar la lógica de transposición.
+function rotateCCW(shape) {
+  return rotateCW(rotateCW(rotateCW(shape)));
+}
+
+function mirrorActive() {
+  return activeChallenge.espejoDesdeNivel && level >= activeChallenge.espejoDesdeNivel;
+}
+
 function tryRotate() {
-  const rotated = rotateCW(current.shape);
+  const rotated = mirrorActive() ? rotateCCW(current.shape) : rotateCW(current.shape);
   const kicks = [0, -1, 1, -2, 2];
   for (const kick of kicks) {
     if (!collide(rotated, current.x + kick, current.y)) {
@@ -193,8 +255,18 @@ function clearLines() {
     lines += cleared;
     level = Math.floor(lines / 10) + 1;
     dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+    announceMirrorIfNeeded();
   }
   return cleared;
+}
+
+// Avisa una sola vez, con el mismo banner que un power-up, cuando ESPEJO
+// activa la rotación invertida — para que no parezca un bug.
+function announceMirrorIfNeeded() {
+  if (mirrorActive() && !espejoAvisado) {
+    espejoAvisado = true;
+    showBanner({ icono: '🪞', nombre: 'ESPEJO ACTIVADO', desc: 'Rotación invertida' });
+  }
 }
 
 // Encola las recompensas de piezas (single por Tetris, power-up cada POWER_LINES)
@@ -320,7 +392,21 @@ function lockPiece() {
     queueRewards(cleared);
     resolveClear(cleared, isTSpin);
   }
+  // FANTASMA: la pieza recién asentada se revela un instante antes de ocultarse.
+  if (activeChallenge.invisible) revealRemaining = REVEAL_MS;
+  // La victoria se decide antes de spawn(): spawn() puede provocar un topout
+  // (endGame) que pisaría el título de victoria si se llamara después.
+  if (checkObjective()) return;
   spawn();
+}
+
+// Devuelve true (y termina la partida) si el desafío activo ya cumplió su meta.
+function checkObjective() {
+  if (activeChallenge.metaLineas && lines >= activeChallenge.metaLineas) {
+    winChallenge();
+    return true;
+  }
+  return false;
 }
 
 function spawn() {
@@ -378,7 +464,11 @@ function powerTinte() {
   for (let r = 0; r < ROWS; r++)
     for (let c = 0; c < COLS; c++) {
       const v = board[r][c];
-      if (v && v !== WILD) counts[v]++;
+      // GARBAGE queda fuera a propósito: en un tablero con basura sería
+      // siempre el color más abundante y Tinte la convertiría entera en
+      // comodines atravesables (collide() los ignora) — un borrado gratis
+      // del desafío BASURA/TABLERO SUCIO.
+      if (v && v !== WILD && v !== GARBAGE) counts[v]++;
     }
   let target = 0;
   for (let i = 1; i < counts.length; i++) if (counts[i] > counts[target]) target = i;
@@ -402,12 +492,66 @@ function powerGravedad() {
   }
 }
 
+// Fila de basura con un único hueco. La columna del hueco se reutiliza durante
+// unas cuantas filas seguidas (ver garbageHoleCol) en vez de sortearse en cada
+// fila: con hueco aleatorio por fila, solo el de la fila más baja es alcanzable
+// y la basura se vuelve imposible de limpiar. Sirve tanto para BASURA como
+// para el prefill inicial de TABLERO SUCIO.
+function makeGarbageRow() {
+  if (garbageHoleCol === undefined || Math.random() < 0.34) {
+    garbageHoleCol = Math.floor(Math.random() * COLS);
+  }
+  const row = new Array(COLS).fill(GARBAGE);
+  row[garbageHoleCol] = 0;
+  return row;
+}
+
+// Rellena las N filas inferiores del tablero con basura, para el desafío
+// TABLERO SUCIO. Se llama justo después de createBoard(), antes de spawn().
+function prefillBoard(n) {
+  for (let i = 0; i < n; i++) board[ROWS - n + i] = makeGarbageRow();
+}
+
+// Empuja una fila de basura desde abajo, descartando la superior. Devuelve
+// false si esa fila superior ya tenía bloques (desbordó: derrota) — así el
+// desafío BASURA tiene una condición de derrota real y no basta con no hacer
+// nada para "sobrevivir".
+function pushGarbageRow() {
+  if (board[0].some(v => v !== 0)) return false;
+  board.shift();
+  board.push(makeGarbageRow());
+  // El tablero se movió UNA fila hacia arriba bajo la pieza en caída: puede
+  // haber quedado solapada con celdas ya ocupadas. merge() escribe sin
+  // comprobar nada, así que hay que resolver el solape subiendo la pieza esa
+  // misma fila. Si ni así cabe, no hay dónde ponerla: desbordó.
+  if (current && collide(current.shape, current.x, current.y)) {
+    current.y--;
+    if (collide(current.shape, current.x, current.y)) return false;
+  }
+  return true;
+}
+
 function updateHUD() {
   scoreEl.textContent = score.toLocaleString();
   linesEl.textContent = lines;
   levelEl.textContent = level;
   comboEl.textContent = combo >= 2 ? `×${combo}` : '—';
   comboEl.classList.toggle('combo-active', combo >= 2);
+
+  objectiveSection.classList.toggle('hidden', !activeChallenge.metaLineas);
+  if (activeChallenge.metaLineas) objectiveEl.textContent = `${lines} / ${activeChallenge.metaLineas}`;
+
+  timerSection.classList.toggle('hidden', !activeChallenge.limiteMs);
+  if (activeChallenge.limiteMs) updateTimerDisplay();
+}
+
+// Se escribe en el DOM solo cuando cambia el segundo mostrado (no en cada
+// frame): updateHUD() ya hace varias escrituras por evento de puntaje.
+function updateTimerDisplay() {
+  const totalSec = Math.ceil(challengeRemaining / 1000);
+  const text = `${Math.floor(totalSec / 60)}:${String(totalSec % 60).padStart(2, '0')}`;
+  if (timerEl.textContent !== text) timerEl.textContent = text;
+  timerEl.classList.toggle('timer-urgente', totalSec <= 15);
 }
 
 // El AudioContext solo puede arrancar tras un gesto del usuario; se crea la
@@ -530,16 +674,23 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   drawGrid();
 
-  // board
-  for (let r = 0; r < ROWS; r++)
-    for (let c = 0; c < COLS; c++) {
-      if (board[r][c] === WILD) drawWild(ctx, c, r, BLOCK);
-      else if (isNutHole(r, c)) drawNutHole(ctx, c, r, BLOCK);
-      else drawBlock(ctx, c, r, board[r][c], BLOCK);
-    }
+  // FANTASMA: lo asentado se oculta, salvo durante el destello tras bloquear
+  // (revealRemaining) o una vez terminada la partida (para ver el resultado).
+  const showBoard = !activeChallenge.invisible || revealRemaining > 0 || gameOver;
+  if (showBoard) {
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++) {
+        if (board[r][c] === WILD) drawWild(ctx, c, r, BLOCK);
+        else if (isNutHole(r, c)) drawNutHole(ctx, c, r, BLOCK);
+        else drawBlock(ctx, c, r, board[r][c], BLOCK);
+      }
+  }
 
   if (current) {
-    // ghost
+    // ghost: se mantiene incluso con el tablero oculto (decisión de producto
+    // de FANTASMA) — sí revela la altura de la pila en la columna actual, pero
+    // es justo la concesión que hace el modo jugable en vez de puramente
+    // memorístico.
     const gy = ghostY();
     for (let r = 0; r < current.shape.length; r++)
       for (let c = 0; c < current.shape[r].length; c++)
@@ -599,26 +750,46 @@ function hideBanner() {
   bannerEl.classList.remove('show');
 }
 
-function endGame() {
+// Punto único de fin de partida, ganada o perdida. Idempotente (if (gameOver)
+// return) porque puede alcanzarse desde más de una ruta en el mismo frame —
+// p. ej. checkObjective() gana justo cuando spawn() habría hecho topout — y
+// sin el guard el segundo endRun() pisaría el título del primero.
+function endRun(titulo, detalle, ganada) {
+  if (gameOver) return;
   gameOver = true;
   current = null;
   cancelAnimationFrame(animId);
-  overlayTitle.textContent = 'GAME OVER';
-  overlayScore.textContent = `Puntuación: ${score.toLocaleString()}`;
+  overlayTitle.textContent = titulo;
+  overlayTitle.classList.toggle('win', !!ganada);
+  overlayScore.textContent = detalle;
   overlay.classList.remove('hidden');
   draw();
 }
 
+function endGame() {
+  endRun('GAME OVER', `Puntuación: ${score.toLocaleString()}`, false);
+}
+
+function winChallenge() {
+  endRun('¡DESAFÍO SUPERADO!', `${lines} líneas · Puntuación: ${score.toLocaleString()}`, true);
+}
+
+function loseChallenge(titulo) {
+  endRun(titulo, `${lines} líneas · Puntuación: ${score.toLocaleString()}`, false);
+}
+
 function togglePause() {
-  if (gameOver) return;
+  if (gameOver || inMenu) return;
   paused = !paused;
   if (!paused) {
     cancelAnimationFrame(animId);
     lastTime = performance.now();
     animId = requestAnimationFrame(loop);
+    overlay.classList.add('hidden'); // bug preexistente: reanudar nunca lo ocultaba
   } else {
     cancelAnimationFrame(animId);
     overlayTitle.textContent = 'PAUSA';
+    overlayTitle.classList.remove('win');
     overlayScore.textContent = '';
     overlay.classList.remove('hidden');
   }
@@ -626,8 +797,25 @@ function togglePause() {
 
 function loop(ts) {
   if (gameOver || paused) return;
-  const dt = ts - lastTime;
+  // Clamp: sin él, una pestaña en segundo plano produce un dt enorme que
+  // vaciaría de golpe el reloj de un desafío (antes era casi inocuo: solo
+  // drenaba freezeRemaining y provocaba una única caída).
+  const dt = Math.min(ts - lastTime, DT_CAP);
   lastTime = ts;
+
+  // Reloj del desafío: se comprueba antes que nada, para que un frame que
+  // agota el tiempo se resuelva como fin de tiempo aunque ese mismo frame
+  // fuera a bloquear una pieza.
+  if (activeChallenge.limiteMs) {
+    challengeRemaining = Math.max(0, challengeRemaining - dt);
+    updateTimerDisplay();
+    if (challengeRemaining <= 0) {
+      if (activeChallenge.alAgotarse === 'ganar') winChallenge();
+      else loseChallenge('TIEMPO AGOTADO');
+      return;
+    }
+  }
+
   if (freezeRemaining > 0) {
     freezeRemaining = Math.max(0, freezeRemaining - dt);
     dropAccum = 0; // al descongelar, la caída arranca de cero
@@ -643,6 +831,19 @@ function loop(ts) {
       }
     }
   }
+
+  // BASURA: solo acumula mientras la caída no está congelada — si no,
+  // Congelar pasaría de power-up a castigo (basura gratis sin poder actuar).
+  if (activeChallenge.basuraMs && freezeRemaining === 0) {
+    garbageAccum += dt;
+    while (garbageAccum >= activeChallenge.basuraMs) {
+      garbageAccum -= activeChallenge.basuraMs;
+      if (!pushGarbageRow()) { loseChallenge('TE ENTERRARON'); return; }
+    }
+  }
+
+  if (activeChallenge.invisible) revealRemaining = Math.max(0, revealRemaining - dt);
+
   if (gameOver || paused) return;
   draw();
   animId = requestAnimationFrame(loop);
@@ -666,6 +867,19 @@ function init() {
   lastActionWasRotate = false;
   gameContainer.classList.remove('flash-perfect');
   hideBanner();
+
+  // Estado del modo desafío. `activeChallenge` NO se toca aquí a propósito:
+  // lo fijan startChallenge()/el menú, y restartBtn llama a init() para
+  // reiniciar el desafío en curso — si init() lo reseteara, "Reiniciar"
+  // devolvería al jugador al modo clásico en silencio.
+  challengeRemaining = activeChallenge.limiteMs || 0;
+  garbageAccum = 0;
+  garbageHoleCol = undefined;
+  revealRemaining = 0;
+  espejoAvisado = false;
+  if (activeChallenge.prefill) prefillBoard(activeChallenge.prefill);
+  overlayTitle.classList.remove('win');
+
   lastTime = performance.now();
   next = nextPiece();
   spawn();
@@ -676,6 +890,7 @@ function init() {
 
 document.addEventListener('keydown', e => {
   if (!audioStarted) { audioStarted = true; ensureAudio(); }
+  if (inMenu) return; // sin esto, P "reanudaría" una partida que no existe
   if (e.code === 'KeyP') { togglePause(); return; }
   if (paused || gameOver) return;
   switch (e.code) {
@@ -701,6 +916,34 @@ document.addEventListener('keydown', e => {
 });
 
 restartBtn.addEventListener('click', init);
+menuBtn.addEventListener('click', showMenu);
+
+// Construye la lista de modos una sola vez, reutilizando {icono, nombre, desc}
+// de CHALLENGES para el texto de cada botón.
+CHALLENGES.forEach(c => {
+  const btn = document.createElement('button');
+  btn.className = 'menu-item';
+  btn.innerHTML = `<span class="menu-item-icon">${c.icono}</span>
+    <span class="menu-item-text"><strong>${c.nombre}</strong><em>${c.desc}</em></span>`;
+  btn.addEventListener('click', () => startChallenge(c.id));
+  menuList.appendChild(btn);
+});
+
+function showMenu() {
+  cancelAnimationFrame(animId);
+  inMenu = true;
+  paused = false;
+  overlay.classList.add('hidden');
+  menu.classList.remove('hidden');
+}
+
+function startChallenge(id) {
+  activeChallenge = CHALLENGES.find(c => c.id === id) || CHALLENGES[0];
+  inMenu = false;
+  menu.classList.add('hidden');
+  init();
+  showBanner(activeChallenge); // {icono, nombre, desc} calzan tal cual con showBanner()
+}
 
 function applyTheme(theme) {
   document.body.classList.toggle('light', theme === 'light');
@@ -724,4 +967,4 @@ soundToggle.addEventListener('click', () => applyMute(!muted));
 
 applyMute(localStorage.getItem('tetris-muted') === 'true');
 
-init();
+showMenu();
