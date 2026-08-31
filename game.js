@@ -70,6 +70,16 @@ const POWER_LINES = 5;   // cada cuántas líneas limpiadas cae un power-up
 const FREEZE_MS = 5000;  // duración del efecto Congelar
 const BANNER_MS = 1800;  // tiempo que se muestra el banner de power-up
 
+// Sistema de habilidades cargables: la contraparte activa de los power-ups.
+// La energía sube al limpiar líneas; al llenarse, el jugador elige (no recibe
+// al azar) una de ABILITIES gastando toda la carga de una vez.
+const PREVIEW_MAX = 5;        // profundidad de la cola de lookahead (nextQueue)
+const ENERGY_MAX = 100;
+const ENERGY_PER_LINE = 12;   // ~9 líneas limpiadas por carga
+const SLOW_MS = 10000;        // duración de Lentitud
+const SLOW_FACTOR = 2.5;      // multiplicador de dropInterval mientras dura
+const PREVIEW5_PIECES = 10;   // colocaciones que dura Videncia
+
 // Power-ups: no viven en PIECES, así que randomPiece() nunca los elige por azar.
 // Caen como piezas 1x1 normales y disparan su efecto al bloquearse (lockPiece).
 const POWERS = [
@@ -78,6 +88,17 @@ const POWERS = [
   { id: 'tinte',    nombre: 'TINTE',    icono: '🎨', desc: 'Comodines de un color' },
   { id: 'gravedad', nombre: 'GRAVEDAD', icono: '🧲', desc: 'Compacta los huecos' },
   { id: 'congelar', nombre: 'CONGELAR', icono: '❄️', desc: 'Congela la caída 5s' },
+];
+
+// Habilidades: datos puros con la misma forma {id, icono, nombre, desc} que
+// POWERS/CHALLENGES, así que showBanner() y el render del menú (calcado del
+// de CHALLENGES) las aceptan sin cambios.
+const ABILITIES = [
+  { id: 'ver5',       icono: '🔮', nombre: 'VIDENCIA',    desc: 'Ve las próximas 5 piezas' },
+  { id: 'cambiar',    icono: '🔄', nombre: 'INTERCAMBIO', desc: 'Cambia la pieza actual' },
+  { id: 'ralentizar', icono: '🐢', nombre: 'LENTITUD',    desc: `Caída ${SLOW_FACTOR}× más lenta ${SLOW_MS / 1000}s` },
+  { id: 'deshacer',   icono: '↩️', nombre: 'DESHACER',    desc: 'Revierte la última pieza' },
+  { id: 'hold',       icono: '📦', nombre: 'RESERVA',     desc: 'Guarda o recupera una pieza' },
 ];
 
 // Modo desafío: cada entrada es datos puros, no una rama de código. Un campo
@@ -143,11 +164,27 @@ const bannerIconEl = document.getElementById('power-banner-icon');
 const bannerNameEl = document.getElementById('power-banner-name');
 const bannerDescEl = document.getElementById('power-banner-desc');
 const gameContainer = document.querySelector('.game-container');
+const energySection = document.getElementById('energy-section');
+const energyFill = document.getElementById('energy-fill');
+const queueSection = document.getElementById('queue-section');
+const queueCanvas = document.getElementById('queue-canvas');
+const queueCtx = queueCanvas.getContext('2d');
+const holdSection = document.getElementById('hold-section');
+const holdCanvas = document.getElementById('hold-canvas');
+const holdCtx = holdCanvas.getContext('2d');
+const abilityMenu = document.getElementById('ability-menu');
+const abilityList = document.getElementById('ability-list');
 
-let board, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
-let linesSincePower, pieceQueue, freezeRemaining, bannerTimer;
+let board, current, nextQueue, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
+let linesSincePower, freezeRemaining, bannerTimer;
 let combo, btbTetris, lastActionWasRotate;
 let audioCtx, audioStarted, muted;
+
+// Sistema de habilidades. `energy` sube al limpiar líneas; llena, la tecla E
+// abre el selector (`choosingAbility`), que congela la partida igual que la
+// pausa. Una sola carga: se gasta entera y vuelve a 0, sin acumular.
+let energy, choosingAbility, heldPiece, undoSnapshot, garbageSinceLock;
+let preview5Remaining, slowRemaining;
 
 // Modo desafío. `activeChallenge` nunca es null (por defecto CHALLENGES[0],
 // clásico) para que updateHUD() —llamado en cada keydown— nunca tenga que
@@ -175,13 +212,28 @@ function powerPiece() {
   return { type: POWER, power, shape: [[POWER]], x: Math.floor(COLS / 2), y: 0 };
 }
 
-// Fuente de piezas usada por spawn()/init(): entrega primero las recompensas
-// encoladas por clearLines() (single de Tetris, power-up) y si no, sortea.
-function nextPiece() {
-  const queued = pieceQueue.shift();
-  if (queued === 'single') return makePiece(SINGLE);
-  if (queued === 'power') return powerPiece();
-  return randomPiece();
+// Copia profunda de una pieza (incluida su forma ya rotada si corresponde).
+// Un spread simple compartiría `shape` por referencia y tryRotate() la muta
+// in situ (por eso makePiece() ya copia desde PIECES por la misma razón) —
+// usarlo en el snapshot de deshacer o en la cola dejaría ambos mutándose entre sí.
+function clonePiece(p) {
+  return { ...p, shape: p.shape.map(row => [...row]) };
+}
+
+// Reconstruye una pieza guardada (RESERVA) en su estado de aparición: forma
+// sin rotar, x/y centrados. Un power-up no vive en PIECES (makePiece(POWER)
+// fallaría), así que se arma a mano conservando su campo `power`.
+function resetPiece(saved) {
+  if (saved.type === POWER) return { type: POWER, power: saved.power, shape: [[POWER]], x: Math.floor(COLS / 2), y: 0 };
+  return makePiece(saved.type);
+}
+
+// nextQueue mantiene SIEMPRE al menos PREVIEW_MAX piezas ya sorteadas: lo que
+// se ve en el preview es exactamente lo que va a caer. Nunca se recorta por
+// arriba — una recompensa insertada la deja temporalmente más larga y esa
+// pieza extra se juega igual, solo que un turno más tarde.
+function refillQueue() {
+  while (nextQueue.length < PREVIEW_MAX) nextQueue.push(randomPiece());
 }
 
 function collide(shape, ox, oy) {
@@ -270,14 +322,36 @@ function announceMirrorIfNeeded() {
 }
 
 // Encola las recompensas de piezas (single por Tetris, power-up cada POWER_LINES)
-// según cuántas líneas se acaban de limpiar. Independiente de la puntuación: se
-// usa tanto para un bloqueo normal como para el efecto de un power-up.
+// y carga la barra de energía. Independiente de la puntuación: se usa tanto
+// para un bloqueo normal como para el efecto de un power-up (la rama de
+// power-up salta resolveClear() a propósito, así que este es el único sitio
+// común entre ambas ramas — y por eso la energía vive aquí y no en resolveClear).
+//
+// Las recompensas se insertan en el índice 1, no al final de la cola: el
+// índice 0 es la pieza que spawn() va a convertir en `current` en el próximo
+// bloqueo, así que el 1 es el próximo preview que el jugador ve — la misma
+// inmediatez que tenía la vieja cola de tokens. Un solo `splice` con ambas
+// recompensas a la vez conserva el orden single→power cuando caen las dos
+// juntas (dos splice(1) seguidos las dejarían al revés).
 function queueRewards(cleared) {
-  if (cleared === 4) pieceQueue.push('single'); // recompensa por Tetris
+  const premios = [];
+  if (cleared === 4) premios.push(makePiece(SINGLE)); // recompensa por Tetris
   linesSincePower += cleared;
   if (linesSincePower >= POWER_LINES) {
     linesSincePower -= POWER_LINES; // conserva el excedente para el próximo umbral
-    pieceQueue.push('power');
+    premios.push(powerPiece());
+  }
+  if (premios.length) nextQueue.splice(1, 0, ...premios);
+
+  if (cleared) {
+    const wasFull = energy >= ENERGY_MAX;
+    energy = Math.min(ENERGY_MAX, energy + cleared * ENERGY_PER_LINE);
+    // Sin banner al llenarse: lockPiece() llama a queueRewards() ANTES que a
+    // resolveClear(), así que un Tetris que llena la barra en el mismo golpe
+    // pisaría al instante "ENERGÍA LISTA" con el banner de puntuación
+    // (#power-banner es un único elemento). El aviso es solo sonoro + el
+    // pulso visual de la barra (updateHUD()).
+    if (!wasFull && energy >= ENERGY_MAX) { playTone(659, 90); playTone(988, 150, 90); }
   }
 }
 
@@ -379,6 +453,7 @@ function softDrop() {
 }
 
 function lockPiece() {
+  takeUndoSnapshot();
   if (current.type === POWER) {
     // Un power-up se consume: no se fusiona en el tablero, dispara su efecto.
     // No participa del combo/T-spin/B2B — solo de la cola de recompensas.
@@ -410,14 +485,16 @@ function checkObjective() {
 }
 
 function spawn() {
-  current = next;
-  next = nextPiece();
+  current = nextQueue.shift();
+  refillQueue();
+  if (preview5Remaining > 0) preview5Remaining--;
   lastActionWasRotate = false; // una pieza recién aparecida no ha rotado
   if (collide(current.shape, current.x, current.y)) {
     endGame();
     return;
   }
   drawNext();
+  updateHUD();
 }
 
 function applyPower(power, px, py) {
@@ -531,6 +608,182 @@ function pushGarbageRow() {
   return true;
 }
 
+// --- Sistema de habilidades cargables ---
+
+// Snapshot del estado justo ANTES de resolver esta colocación. Se toma en lo
+// alto de lockPiece(), así que cubre por igual una pieza normal y un power-up.
+// No guarda `energy`: chooseAbility() la pone a 0 al cobrar la carga, así que
+// restaurarla devolvería el gasto y habilitaría un deshacer infinito. Tampoco
+// `challengeRemaining` (el reloj es tiempo real: rebobinarlo sería una segunda
+// habilidad no declarada) ni `espejoAvisado` (si no, ESPEJO se re-anunciaría
+// al recruzar el nivel 2). `linesSincePower` SÍ se guarda: sin él, deshacer y
+// volver a limpiar cruzaría el umbral de POWER_LINES dos veces — un power-up
+// gratis y repetible.
+function takeUndoSnapshot() {
+  undoSnapshot = {
+    board: board.map(row => [...row]),
+    current: clonePiece(current),
+    nextQueue: nextQueue.map(clonePiece),
+    score, lines, level, dropInterval, linesSincePower,
+    combo, btbTetris, preview5Remaining, lastActionWasRotate,
+    freezeRemaining, slowRemaining,
+  };
+  garbageSinceLock = 0;
+}
+
+function abilityDeshacer() {
+  const s = undoSnapshot;
+  if (!s) return false;
+  board = s.board.map(row => [...row]);
+  // Se restaura en su x/y/forma EXACTOS (no en la posición de aparición): con
+  // el tablero ya restaurado esa celda es legal por construcción —lo era hace
+  // un instante—, mientras que la posición de aparición podría no serlo con
+  // la pila alta.
+  current = clonePiece(s.current);
+  nextQueue = s.nextQueue.map(clonePiece);
+  score = s.score; lines = s.lines; level = s.level; dropInterval = s.dropInterval;
+  linesSincePower = s.linesSincePower;
+  combo = s.combo; btbTetris = s.btbTetris;
+  preview5Remaining = s.preview5Remaining;
+  lastActionWasRotate = s.lastActionWasRotate;
+  // Un temporizador solo puede ACORTARSE al deshacer, nunca alargarse: así
+  // deshacer el lock de un Congelar/Ralentizar recién aplicado lo cancela,
+  // pero deshacer otra cosa mientras uno ya corría no regala tiempo extra.
+  freezeRemaining = Math.min(s.freezeRemaining, freezeRemaining);
+  slowRemaining = Math.min(s.slowRemaining, slowRemaining);
+  dropAccum = 0;
+  // BASURA: las filas empujadas DESPUÉS de esta colocación las mete loop()
+  // (pushGarbageRow), no lockPiece() — el tablero restaurado no las tiene, así
+  // que se re-empujan; si no, deshacer sería un borrado gratis de basura.
+  for (let i = 0; i < garbageSinceLock; i++) {
+    if (!pushGarbageRow()) { loseChallenge('TE ENTERRARON'); return true; }
+  }
+  garbageSinceLock = 0;
+  undoSnapshot = null; // no hay doble deshacer
+  // FANTASMA: sin este destello el jugador no podría ver qué se restauró —
+  // misma concesión deliberada que el ghost piece, que el modo tampoco oculta.
+  if (activeChallenge.invisible) revealRemaining = REVEAL_MS;
+  drawNext();
+  drawHold();
+  return true;
+}
+
+// Cambia la pieza en caída por otra, siempre en la posición de aparición: una
+// forma distinta a la altura actual podría solaparse con celdas ya asentadas,
+// y merge() escribe sin comprobar nada. Solo tetrominós estándar (nunca la
+// tuerca/pentominós) y nunca el mismo tipo: es un rescate, no una tómbola.
+function abilityCambiar() {
+  const pool = STANDARD.filter(t => t !== current.type);
+  const candidate = makePiece(pool[Math.floor(Math.random() * pool.length)]);
+  if (collide(candidate.shape, candidate.x, candidate.y)) return false; // no cabe: no cuesta carga
+  current = candidate;
+  lastActionWasRotate = false;
+  dropAccum = 0;
+  return true;
+}
+
+function abilityRalentizar() {
+  slowRemaining = SLOW_MS;
+  return true;
+}
+
+// Guarda la pieza en caída y saca la siguiente de la cola, o la intercambia
+// con la ya guardada. Se guarda siempre en forma canónica (resetPiece: sin
+// rotar, posición de aparición) para que recuperarla no dependa de cómo
+// estuviera girada al guardarla. Guardar un power-up para más tarde es legal.
+function abilityHold() {
+  const stored = { type: current.type, power: current.power };
+  const incoming = heldPiece ? resetPiece(heldPiece) : nextQueue[0];
+  if (collide(incoming.shape, incoming.x, incoming.y)) return false; // no cabe: no cuesta carga
+  if (heldPiece) {
+    heldPiece = stored;
+    current = incoming;
+  } else {
+    heldPiece = stored;
+    nextQueue.shift(); // primera reserva: cuesta la pieza que viene
+    current = incoming;
+    refillQueue();
+  }
+  lastActionWasRotate = false;
+  dropAccum = 0;
+  drawNext();
+  drawHold();
+  return true;
+}
+
+// Intervalo de caída efectivo. `dropInterval` sigue siendo el valor puro que
+// deriva del nivel (clearLines() lo recalcula y el snapshot de deshacer lo
+// guarda tal cual): Ralentizar no lo toca, solo lo multiplica al leerlo.
+function effectiveDropInterval() {
+  return slowRemaining > 0 ? dropInterval * SLOW_FACTOR : dropInterval;
+}
+
+function runAbility(ability) {
+  switch (ability.id) {
+    case 'ver5':       preview5Remaining = PREVIEW5_PIECES; drawNext(); return true;
+    case 'cambiar':    return abilityCambiar();
+    case 'ralentizar': return abilityRalentizar();
+    case 'deshacer':   return abilityDeshacer();
+    case 'hold':       return abilityHold();
+  }
+  return false;
+}
+
+function abilityAvailable(ability) {
+  return ability.id !== 'deshacer' || !!undoSnapshot;
+}
+
+// La lista se reconstruye en CADA apertura (a diferencia del menú de
+// desafíos, que se arma una sola vez al cargar): qué habilidades están
+// disponibles depende del estado de la partida, no es estático.
+function renderAbilityList() {
+  abilityList.innerHTML = '';
+  ABILITIES.forEach((a, i) => {
+    const available = abilityAvailable(a);
+    const btn = document.createElement('button');
+    btn.className = 'menu-item' + (available ? '' : ' disabled');
+    btn.disabled = !available;
+    btn.innerHTML = `<span class="menu-item-icon">${a.icono}</span>
+      <span class="menu-item-text"><strong>${i + 1}. ${a.nombre}</strong><em>${a.desc}</em></span>`;
+    if (available) btn.addEventListener('click', () => chooseAbility(a));
+    abilityList.appendChild(btn);
+  });
+}
+
+// Abre el selector: congela la partida igual que la pausa (cancela el rAF),
+// pero con overlay propio — #overlay lo comparten pausa y fin de partida, y
+// sus botones Reintentar/Menú no pintan nada aquí.
+function openAbilityMenu() {
+  if (energy < ENERGY_MAX) return;
+  choosingAbility = true;
+  cancelAnimationFrame(animId);
+  renderAbilityList();
+  abilityMenu.classList.remove('hidden');
+}
+
+// `lastTime = performance.now()` es obligatorio al reanudar (mismo patrón que
+// togglePause()): sin él, el primer frame traería como dt toda la duración
+// del selector, topada por DT_CAP pero aun así drenando relojes de golpe.
+function closeAbilityMenu() {
+  choosingAbility = false;
+  abilityMenu.classList.add('hidden');
+  if (gameOver || paused || inMenu) return; // deshacer pudo haber perdido el desafío al reponer basura
+  cancelAnimationFrame(animId);
+  lastTime = performance.now();
+  animId = requestAnimationFrame(loop);
+}
+
+function chooseAbility(ability) {
+  if (!choosingAbility || !abilityAvailable(ability)) return;
+  if (runAbility(ability) === false) { playTone(160, 120, 0, 'square', 0.1); return; } // rechazada: no cuesta la carga
+  energy = 0;
+  showBanner(ability); // {icono, nombre, desc} calzan tal cual con showBanner()
+  playTone(523, 90);
+  playTone(784, 140, 90);
+  closeAbilityMenu();
+  updateHUD();
+}
+
 function updateHUD() {
   scoreEl.textContent = score.toLocaleString();
   linesEl.textContent = lines;
@@ -543,6 +796,13 @@ function updateHUD() {
 
   timerSection.classList.toggle('hidden', !activeChallenge.limiteMs);
   if (activeChallenge.limiteMs) updateTimerDisplay();
+
+  const pct = `${(energy / ENERGY_MAX) * 100}%`;
+  if (energyFill.style.width !== pct) energyFill.style.width = pct;
+  energySection.classList.toggle('full', energy >= ENERGY_MAX);
+
+  holdSection.classList.toggle('hidden', !heldPiece);
+  queueSection.classList.toggle('hidden', preview5Remaining <= 0);
 }
 
 // Se escribe en el DOM solo cuando cambia el segundo mostrado (no en cada
@@ -712,28 +972,59 @@ function draw() {
     if (current.type === POWER) drawPower(ctx, current.x, current.y, current.power, BLOCK);
   }
 
-  if (freezeRemaining > 0) {
-    ctx.save();
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--value-color').trim();
-    ctx.font = 'bold 20px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`❄ ${(freezeRemaining / 1000).toFixed(1)}s`, canvas.width / 2, 30);
-    ctx.restore();
-  }
+  drawTimers();
+}
+
+// Apila las señales de temporizador activas (Congelar, Ralentizar) en la
+// esquina superior del tablero en vez de duplicar el bloque por cada una.
+function drawTimers() {
+  const timers = [];
+  if (freezeRemaining > 0) timers.push(`❄ ${(freezeRemaining / 1000).toFixed(1)}s`);
+  if (slowRemaining > 0) timers.push(`🐢 ${(slowRemaining / 1000).toFixed(1)}s`);
+  if (!timers.length) return;
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--value-color').trim();
+  ctx.font = 'bold 18px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  timers.forEach((text, i) => ctx.fillText(text, canvas.width / 2, 30 + i * 22));
+  ctx.restore();
+}
+
+// Dibuja una pieza centrada en una rejilla 4×4, con un desplazamiento extra en
+// celdas (tileX/tileY) para acomodar varias piezas en un mismo canvas —
+// compartido por drawNext(), drawQueue() y drawHold().
+function drawPreview(context, piece, size, tileX = 0, tileY = 0) {
+  const shape = piece.shape;
+  const offX = tileX + Math.floor((4 - shape[0].length) / 2);
+  const offY = tileY + Math.floor((4 - shape.length) / 2);
+  for (let r = 0; r < shape.length; r++)
+    for (let c = 0; c < shape[r].length; c++)
+      drawBlock(context, offX + c, offY + r, shape[r][c], size);
+  if (piece.type === NUT) drawNutHole(context, offX + 1, offY + 1, size);
+  if (piece.type === POWER) drawPower(context, offX, offY, piece.power, size);
 }
 
 function drawNext() {
-  const NB = 30;
   nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
-  const shape = next.shape;
-  const offX = Math.floor((4 - shape[0].length) / 2);
-  const offY = Math.floor((4 - shape.length) / 2);
-  for (let r = 0; r < shape.length; r++)
-    for (let c = 0; c < shape[r].length; c++)
-      drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
-  if (next.type === NUT) drawNutHole(nextCtx, offX + 1, offY + 1, NB);
-  if (next.type === POWER) drawPower(nextCtx, offX, offY, next.power, NB);
+  drawPreview(nextCtx, nextQueue[0], 30);
+  drawQueue();
+}
+
+// VIDENCIA: mientras dure, apila las 4 piezas siguientes a la del preview
+// normal en franjas de 4 celdas dentro de un canvas más alto y angosto.
+function drawQueue() {
+  queueCtx.clearRect(0, 0, queueCanvas.width, queueCanvas.height);
+  if (preview5Remaining <= 0) return;
+  for (let i = 0; i < PREVIEW_MAX - 1; i++) {
+    const piece = nextQueue[i + 1];
+    if (piece) drawPreview(queueCtx, piece, 25, 0, i * 4);
+  }
+}
+
+function drawHold() {
+  holdCtx.clearRect(0, 0, holdCanvas.width, holdCanvas.height);
+  if (heldPiece) drawPreview(holdCtx, resetPiece(heldPiece), 30);
 }
 
 function showBanner(power) {
@@ -779,7 +1070,7 @@ function loseChallenge(titulo) {
 }
 
 function togglePause() {
-  if (gameOver || inMenu) return;
+  if (gameOver || inMenu || choosingAbility) return;
   paused = !paused;
   if (!paused) {
     cancelAnimationFrame(animId);
@@ -796,7 +1087,7 @@ function togglePause() {
 }
 
 function loop(ts) {
-  if (gameOver || paused) return;
+  if (gameOver || paused || choosingAbility) return;
   // Clamp: sin él, una pestaña en segundo plano produce un dt enorme que
   // vaciaría de golpe el reloj de un desafío (antes era casi inocuo: solo
   // drenaba freezeRemaining y provocaba una única caída).
@@ -820,8 +1111,12 @@ function loop(ts) {
     freezeRemaining = Math.max(0, freezeRemaining - dt);
     dropAccum = 0; // al descongelar, la caída arranca de cero
   } else {
+    // Ralentizar: 10s de tiempo real, independientes de la caída — se
+    // descuenta aquí (no dentro del if de más abajo) para que "10s" siga
+    // significando 10s aunque la pieza tarde más en caer mientras dura.
+    if (slowRemaining > 0) slowRemaining = Math.max(0, slowRemaining - dt);
     dropAccum += dt;
-    if (dropAccum >= dropInterval) {
+    if (dropAccum >= effectiveDropInterval()) {
       dropAccum = 0;
       if (!collide(current.shape, current.x, current.y + 1)) {
         current.y++;
@@ -839,12 +1134,13 @@ function loop(ts) {
     while (garbageAccum >= activeChallenge.basuraMs) {
       garbageAccum -= activeChallenge.basuraMs;
       if (!pushGarbageRow()) { loseChallenge('TE ENTERRARON'); return; }
+      garbageSinceLock++; // deshacer necesita saber cuántas re-empujar si revierte el tablero
     }
   }
 
   if (activeChallenge.invisible) revealRemaining = Math.max(0, revealRemaining - dt);
 
-  if (gameOver || paused) return;
+  if (gameOver || paused || choosingAbility) return;
   draw();
   animId = requestAnimationFrame(loop);
 }
@@ -860,13 +1156,22 @@ function init() {
   dropInterval = 1000;
   dropAccum = 0;
   linesSincePower = 0;
-  pieceQueue = [];
   freezeRemaining = 0;
   combo = 0;
   btbTetris = 0;
   lastActionWasRotate = false;
   gameContainer.classList.remove('flash-perfect');
   hideBanner();
+
+  // Sistema de habilidades: todo vuelve a cero en cada partida nueva.
+  energy = 0;
+  choosingAbility = false;
+  heldPiece = null;
+  undoSnapshot = null;
+  garbageSinceLock = 0;
+  preview5Remaining = 0;
+  slowRemaining = 0;
+  abilityMenu.classList.add('hidden');
 
   // Estado del modo desafío. `activeChallenge` NO se toca aquí a propósito:
   // lo fijan startChallenge()/el menú, y restartBtn llama a init() para
@@ -881,8 +1186,10 @@ function init() {
   overlayTitle.classList.remove('win');
 
   lastTime = performance.now();
-  next = nextPiece();
+  nextQueue = [];
+  refillQueue();
   spawn();
+  drawHold();
   updateHUD();
   overlay.classList.add('hidden');
   animId = requestAnimationFrame(loop);
@@ -891,6 +1198,15 @@ function init() {
 document.addEventListener('keydown', e => {
   if (!audioStarted) { audioStarted = true; ensureAudio(); }
   if (inMenu) return; // sin esto, P "reanudaría" una partida que no existe
+  if (choosingAbility) {
+    if (e.code === 'Escape') closeAbilityMenu(); // cancela sin gastar la carga
+    else if (e.code === 'Space') e.preventDefault(); // no "clickear" el botón con foco
+    else if (e.code.startsWith('Digit')) {
+      const ability = ABILITIES[Number(e.code.slice(5)) - 1];
+      if (ability) chooseAbility(ability);
+    }
+    return;
+  }
   if (e.code === 'KeyP') { togglePause(); return; }
   if (paused || gameOver) return;
   switch (e.code) {
@@ -910,6 +1226,9 @@ document.addEventListener('keydown', e => {
     case 'Space':
       e.preventDefault();
       hardDrop();
+      break;
+    case 'KeyE':
+      openAbilityMenu();
       break;
   }
   updateHUD();
@@ -933,6 +1252,8 @@ function showMenu() {
   cancelAnimationFrame(animId);
   inMenu = true;
   paused = false;
+  choosingAbility = false;
+  abilityMenu.classList.add('hidden');
   overlay.classList.add('hidden');
   menu.classList.remove('hidden');
 }

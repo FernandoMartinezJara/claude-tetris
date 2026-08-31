@@ -36,6 +36,10 @@
           <span class="label">COMBO</span>
           <span class="value" id="combo">—</span>
         </div>
+        <div class="panel-section" id="energy-section">
+          <span class="label">ENERGÍA</span>
+          <div class="energy-track"><div class="energy-fill" id="energy-fill"></div></div>
+        </div>
         <div class="panel-section hidden" id="objective-section">
           <span class="label">OBJETIVO</span>
           <span class="value" id="objective">0 / 0</span>
@@ -50,6 +54,16 @@
           <canvas id="next-canvas" width="120" height="120"></canvas>
         </div>
 
+        <div class="panel-section hidden" id="hold-section">
+          <span class="label">RESERVA</span>
+          <canvas id="hold-canvas" width="120" height="120"></canvas>
+        </div>
+
+        <div class="panel-section hidden" id="queue-section">
+          <span class="label">VIDENCIA</span>
+          <canvas id="queue-canvas" width="100" height="400"></canvas>
+        </div>
+
         <div class="panel-section controls">
           <span class="label">POWER-UPS</span>
           <ul>
@@ -62,6 +76,17 @@
         </div>
 
         <div class="panel-section controls">
+          <span class="label">HABILIDADES</span>
+          <ul>
+            <li>🔮 videncia ×5</li>
+            <li>🔄 intercambio</li>
+            <li>🐢 lentitud 10s</li>
+            <li>↩️ deshacer</li>
+            <li>📦 reserva</li>
+          </ul>
+        </div>
+
+        <div class="panel-section controls">
           <span class="label">CONTROLS</span>
           <ul>
             <li><kbd>←</kbd><kbd>→</kbd> mover</li>
@@ -69,6 +94,7 @@
             <li><kbd>↓</kbd> bajar</li>
             <li><kbd>Space</kbd> caída</li>
             <li><kbd>P</kbd> pausa</li>
+            <li><kbd>E</kbd> habilidad</li>
           </ul>
         </div>
       </aside>
@@ -97,6 +123,14 @@
       <div class="overlay-box">
         <p class="menu-title">TETRIS</p>
         <div id="menu-list" class="menu-list"></div>
+      </div>
+    </div>
+
+    <div id="ability-menu" class="overlay hidden">
+      <div class="overlay-box">
+        <p class="menu-title">HABILIDAD</p>
+        <div id="ability-list" class="menu-list"></div>
+        <p class="menu-hint">Esc para cancelar</p>
       </div>
     </div>
   </div>

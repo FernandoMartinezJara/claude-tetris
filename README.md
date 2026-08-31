@@ -18,6 +18,7 @@ Implementación del clásico **Tetris** en JavaScript vanilla, usando HTML5 Canv
     - [Opción 2: servidor local (recomendado)](#opción-2-servidor-local-recomendado)
   - [Controles](#controles)
   - [Power-ups](#power-ups)
+  - [Habilidades cargables](#habilidades-cargables)
   - [Combo y bonus](#combo-y-bonus)
   - [Modo desafío](#modo-desafío)
   - [Cómo funciona](#cómo-funciona)
@@ -47,6 +48,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Power-ups aleatorios**: cada 5 líneas limpiadas, la siguiente pieza es un power-up 1×1 (ver [tabla abajo](#power-ups)).
+- **Habilidades cargables**: una barra de energía se llena al limpiar líneas; al completarse, el jugador elige (no recibe al azar) una de 5 habilidades tácticas (ver [tabla abajo](#habilidades-cargables)).
 - **Modo combo y multiplicadores**: rachas de líneas consecutivas multiplican el puntaje, con bonus por T-spin, Tetris consecutivos (B2B) y Perfect Clear, más feedback visual y sonoro (ver [detalle abajo](#combo-y-bonus)).
 - **Modo desafío**: un menú inicial ofrece Clásico y 5 retos con objetivo propio — Contrarreloj, Basura, Tablero sucio, Fantasma y Espejo (ver [tabla abajo](#modo-desafío)). Power-ups y combo siguen activos en todos.
 - **Pausa** y **Game Over** (o victoria/derrota de desafío) con opción de reintentar o volver al menú.
@@ -93,6 +95,7 @@ Después abre `http://localhost:8000` en el navegador.
 | `↓`       | Soft drop (bajar más rápido)      |
 | `Espacio` | Hard drop (caída instantánea)     |
 | `P`       | Pausar / reanudar                 |
+| `E`       | Abrir el selector de habilidades (solo con la barra de energía llena) |
 
 También hay un botón de silencio (🔊/🔇) junto al selector de tema, para cortar los efectos sonoros del modo combo; su estado se recuerda entre sesiones.
 
@@ -111,6 +114,22 @@ Cada **5 líneas** limpiadas, la siguiente pieza (visible ya en el panel `NEXT`)
 | ❄️    | **Congelar** | Detiene la caída automática 5 segundos (los controles siguen activos)   |
 
 Los comodines de **Tinte** son atravesables (las piezas caen a través de ellos) pero cuentan como celda llena al evaluar líneas completas. Bomba y Rayo suman `10 × nivel` puntos por cada bloque destruido. Un banner temporal anuncia el efecto al activarse.
+
+---
+
+## Habilidades cargables
+
+A diferencia de los power-ups (aleatorios, se reciben pasivamente), las habilidades son la contraparte **activa**: el jugador elige cuándo y cuál usar. Una barra de **ENERGÍA** en el panel lateral sube con cada línea limpiada; al llegar al 100% (con cualquier lock que despeje al menos una línea, tanto normal como de un power-up), pulsar `E` congela la partida y abre un selector con las 5 habilidades. Elegir una la ejecuta y vacía la barra por completo — no se acumulan cargas. `Esc` cancela el selector sin gastar nada; con el teclado, `1`–`5` eligen directamente cada opción.
+
+| Icono | Nombre | Efecto |
+| ----- | ------ | ------ |
+| 🔮 | **Videncia** | Muestra las próximas 5 piezas durante 10 colocaciones |
+| 🔄 | **Intercambio** | Cambia la pieza en caída por otra pieza estándar distinta |
+| 🐢 | **Lentitud** | La caída automática se ralentiza 2.5× durante 10 segundos |
+| ↩️ | **Deshacer** | Revierte tablero, puntaje, líneas, nivel y combo al estado justo antes de la última pieza bloqueada (deshabilitada si aún no se ha colocado ninguna) |
+| 📦 | **Reserva** | Guarda la pieza actual y saca la siguiente de la cola; usarla de nuevo intercambia con la guardada |
+
+Una habilidad que no puede aplicarse en ese instante (Intercambio o Reserva sin espacio para aparecer) se rechaza sin cobrar la carga. Deshacer no puede revertir la jugada que terminó la partida o ganó un desafío, y no regala tiempo de reloj: los relojes de desafío y de Congelar/Lentitud solo pueden acortarse al deshacer, nunca alargarse.
 
 ---
 
@@ -168,7 +187,7 @@ Contiene toda la lógica del juego. A grandes rasgos:
 - **Modelo del tablero**: una matriz `ROWS × COLS` donde cada celda guarda `0` (vacía) o un índice de color (1–12) que identifica la pieza.
 - **Piezas**: definidas como matrices cuadradas/rectangulares en `PIECES` (1–12). Para rotar se calcula la transposición + reverso de filas (`rotateCW`) — funciona igual para una matriz 3×3, 4×4 o 1×1, así que las piezas raras se sumaron sin tocar la rotación, la colisión ni el renderizado. La pieza 8 es la "tuerca" (`NUT`), un anillo 3×3 con un hueco central que no colisiona (se puede pasar por encima de un bloque bajo el hueco) y que se dibuja como un agujero circular real (`drawNutHole`); su fila solo se puede completar tras romper el anillo por arriba (`isNutHole`). Las piezas 9–11 son los pentominós **+** (`PLUS`), **U** (`UPENT`) e **Y** (`YPENT`); la 12 es el **single** (`SINGLE`, `[[12]]`), que nunca sale por azar.
 - **Sorteo de piezas** (`randomPiece`): en vez de elegir uniformemente entre todas, sortea sobre dos grupos — `STANDARD` (las 7 clásicas) casi siempre, o `RARE` (tuerca + los 3 pentominós) con probabilidad `RARE_CHANCE` (12%). Ambos resuelven la pieza con `makePiece(type)`.
-- **Recompensas** (`pieceQueue`): una cola FIFO que `clearLines` llena — `'single'` al limpiar un Tetris (4 líneas) y `'power'` cada `POWER_LINES` líneas. `nextPiece()` va vaciando la cola antes de sortear, así que un Tetris que además complete el umbral de power-up entrega ambas recompensas en orden: primero el single, luego el power-up.
+- **Cola de piezas y recompensas** (`nextQueue`): un array de al menos `PREVIEW_MAX` (5) piezas ya sorteadas — lo que se ve en el panel es exactamente lo que va a caer. `spawn()` saca la primera y rellena con `randomPiece()` hasta el tope. `queueRewards()` inserta las recompensas (`'single'` al limpiar un Tetris, power-up cada `POWER_LINES` líneas) en el índice 1 de la cola —justo después de la pieza que ya está por convertirse en actual—, así llegan con la misma inmediatez que antes; un Tetris que además completa el umbral de power-up entrega ambas en orden: primero el single, luego el power-up.
 - **Detección de colisiones** (`collide`): comprueba que ninguna celda de la pieza salga del tablero ni se solape con bloques ya fijados.
 - **Wall kicks** (`tryRotate`): si la rotación choca, intenta desplazar la pieza ±1 y ±2 columnas antes de descartar el giro.
 - **Game loop** (`loop`): basado en `requestAnimationFrame`, acumula el tiempo transcurrido y baja la pieza una fila cuando se supera `dropInterval`.
@@ -179,26 +198,27 @@ Contiene toda la lógica del juego. A grandes rasgos:
 - **Power-ups**: el `'power'` encolado por `clearLines` (ver *Recompensas* arriba) se convierte en un power-up 1×1 al consumirse en `nextPiece`. Al bloquearse (`lockPiece`), no se fusiona en el tablero: dispara su efecto (`applyPower`) y luego corre `clearLines` igual que siempre, así que un efecto que complete una fila puntúa — pero sin pasar por el combo (ver siguiente punto).
 - **Combo/T-spin/B2B/Perfect Clear** (`resolveClear`): `clearLines` ya no puntúa, solo devuelve cuántas líneas limpió; `lockPiece` usa ese número para decidir el puntaje final. El combo sube con cada bloqueo consecutivo que limpia líneas (tope ×5) y se reinicia si uno falla; un T-spin (rotar la T como último movimiento y encajarla con al menos 3 de sus 4 esquinas bloqueadas) reemplaza el puntaje normal por una tabla propia; dos Tetris seguidos suman un bonus B2B; y vaciar el tablero por completo suma un bonus fijo aparte. Solo un power-up nunca pasa por aquí — así nunca compite por el mismo banner que un evento de combo.
 - **Modo desafío** (`CHALLENGES`, `activeChallenge`): cada desafío es una entrada de datos, no una rama de código — un campo ausente simplemente no activa esa mecánica, y **Clásico es la entrada sin ningún campo especial**. `checkObjective()` (en `lockPiece`, antes de `spawn()`) gana el desafío al alcanzar `metaLineas`; el reloj de `limiteMs` se descuenta en `loop()` con el mismo `dt` (con un tope `DT_CAP` para que una pestaña en segundo plano no lo vacíe de golpe) y termina en victoria o derrota según `alAgotarse`. `basuraMs` sube una fila de basura (`GARBAGE`, índice 15, solo vive en `board`) cada cierto tiempo, reutilizando la misma columna de hueco 2-3 filas para que sea limpiable; `prefill` hace lo mismo de una vez al iniciar. `invisible` oculta lo asentado en `draw()` salvo un destello de `REVEAL_MS` tras cada bloqueo (la pieza fantasma se mantiene visible a propósito). `espejoDesdeNivel` cambia `tryRotate()` a rotación antihoraria (`rotateCCW`, tres `rotateCW` seguidos) desde ese nivel. `endRun()` centraliza el fin de partida (ganada o perdida) y es idempotente, porque una victoria y un topout pueden intentar resolverse en el mismo bloqueo.
+- **Habilidades cargables** (`ABILITIES`, `energy`): `queueRewards()` suma energía con cada línea limpiada (tope `ENERGY_MAX`); llena, `E` (`openAbilityMenu`) congela el juego igual que la pausa (cancela el `requestAnimationFrame` y lo retoma con `lastTime` reseteado al cerrar) y abre un selector propio, independiente del overlay de pausa/fin de partida. `takeUndoSnapshot()` guarda, al inicio de cada `lockPiece()`, una copia del tablero/pieza/cola/puntaje — **sin** la energía (se pondría a 0 igual al cobrar la carga) ni el reloj del desafío (es tiempo real, no rebobinable) — para que **Deshacer** pueda restaurar exactamente ese instante; los temporizadores de Congelar/Lentitud solo se acortan al restaurarse, nunca se alargan, y la basura empujada después del bloqueo (`garbageSinceLock`) se vuelve a empujar tras el tablero restaurado. Las demás habilidades mutan `current`/`nextQueue`/`heldPiece` directamente y devuelven `false` sin cobrar la carga cuando no pueden aplicarse (p. ej. no cabe la pieza entrante).
 
 ### Flujo del juego
 
 ```
 init()
   ├─ createBoard()                  → matriz vacía
-  ├─ next = randomPiece()
-  ├─ spawn()                        → mueve next a current y genera nueva next
+  ├─ nextQueue = [randomPiece() × PREVIEW_MAX]
+  ├─ spawn()                        → saca la primera de nextQueue y la rellena
   └─ requestAnimationFrame(loop)
         ↓
    loop(timestamp)
-     ├─ acumula dt
-     ├─ si dt ≥ dropInterval → baja la pieza o llama a lockPiece()
-     ├─ draw()  (grid + tablero + ghost + pieza actual)
+     ├─ acumula dt (nada corre si choosingAbility)
+     ├─ si dt ≥ dropInterval (o el doble con Lentitud) → baja la pieza o llama a lockPiece()
+     ├─ draw()  (grid + tablero + ghost + pieza actual + temporizadores)
      └─ requestAnimationFrame(loop)
 
-   keydown → mover / rotar / soft-drop / hard-drop / pausa
+   keydown → mover / rotar / soft-drop / hard-drop / pausa / abrir habilidades (E)
 ```
 
-Cuando una pieza recién generada ya colisiona al aparecer (`spawn`), se dispara `endGame()` y se muestra el overlay de **Game Over**. Antes de arrancar cualquier partida, `showMenu()` muestra el listado de modos; elegir uno llama a `startChallenge(id)`, que fija `activeChallenge` y recién ahí llama a `init()`.
+Cuando una pieza recién generada ya colisiona al aparecer (`spawn`), se dispara `endGame()` y se muestra el overlay de **Game Over**. Antes de arrancar cualquier partida, `showMenu()` muestra el listado de modos; elegir uno llama a `startChallenge(id)`, que fija `activeChallenge` y recién ahí llama a `init()`. Con la energía llena, `E` interrumpe este ciclo (cancela el `requestAnimationFrame`) para mostrar el selector de habilidades; se retoma exactamente donde quedó al cerrarlo.
 
 ---
 
@@ -248,6 +268,11 @@ Algunos parámetros fáciles de tunear en `game.js`:
 | `CHALLENGES`   | Catálogo de desafíos (objetivo, reloj, basura, etc.) | 6 entradas  |
 | `REVEAL_MS`    | Duración del destello de FANTASMA al bloquear | `600`             |
 | `DT_CAP`       | Tope de dt por frame (evita saltos de reloj) | `100`              |
+| `PREVIEW_MAX`  | Piezas mínimas en `nextQueue` (profundidad del preview) | `5`           |
+| `ENERGY_MAX` / `ENERGY_PER_LINE` | Tope de la barra de energía / ganancia por línea | `100` / `12` |
+| `SLOW_MS` / `SLOW_FACTOR` | Duración y multiplicador de la habilidad Lentitud | `10000` / `2.5` |
+| `PREVIEW5_PIECES` | Colocaciones que dura la habilidad Videncia | `10`                |
+| `ABILITIES`    | Catálogo de habilidades cargables | 5 entradas |
 
 > Si cambias `COLS`, `ROWS` o `BLOCK`, recuerda ajustar también `width` y `height` del `<canvas id="board">` en `index.html` para que coincida (`COLS × BLOCK` × `ROWS × BLOCK`).
 
